@@ -18,9 +18,11 @@ namespace MIB {
     /// <summary>
     /// 行単位でWORDを読みだすイテレータ
     /// [WORD] [DELIM] [NUMBER] [STR]の何れかに該当する文字列を返す。
-    /// WORD   連続ずる文字列
-    /// DELIM 
-    /// NUMBER [0-9]+
+    /// DELIM   +-*^/%=;(),&|><!
+    ///         == <= >= != >> << <>
+    /// CONST   true false 
+    /// NUMBER  [0-9]+
+    /// WORD   他
     /// 終端は"\r"
     /// </summary>
     class RawTokenIterator {
@@ -68,8 +70,8 @@ namespace MIB {
                 auto r = iter.getc(c1);
                 switch (r) {
                 case ParserResult::OK:
-                    if ((c0 == '<' && (c1 == '>' || c1 == '<')) ||
-                        (c0 == '>' && c1 == '>') ||
+                    if ((c0 == '<' && (c1 == '>' || c1 == '<') || c1 == '=') ||
+                        (c0 == '>' && c1 == '>' || c1 == '=') ||
                         (c0 == '!' && c1 == '=')
                         ) {
                         token.size = 2;

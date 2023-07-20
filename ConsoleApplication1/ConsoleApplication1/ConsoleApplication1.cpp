@@ -3,6 +3,7 @@
 #define TEST 1
 #include "./CharReader.h"
 #include "./RawTokenIterator.h"
+#include <string.h>
 
 using namespace MIB;
 
@@ -33,7 +34,13 @@ enum class DelimType:MIB_UINT8 {
     PLUS  =5,
     MINUS =6,
     SHL   =7,
-    SHR   =8,
+    SHR  = 8,
+    LT   = 9,
+    LTEQ = 10,
+    GT   = 11,
+    GTEQ = 12, 
+    EQ   = 13,
+    NOTEQ= 14//AND OR
 };
 
 
@@ -52,7 +59,12 @@ const static OpDef OpTableDef[]={
     OpDef{ DelimType::PLUS,    3 },
     OpDef{ DelimType::MINUS,   3 },
     OpDef{ DelimType::SHL,     4 },
-    OpDef{ DelimType::SHR,     4 }
+    OpDef{ DelimType::SHR,     4 },
+    OpDef{ DelimType::LT,      5 },
+    OpDef{ DelimType::LTEQ,    5 },
+    OpDef{ DelimType::GT,      5 },
+    OpDef{ DelimType::GTEQ,    5 },
+    OpDef{ DelimType::NOTEQ,   5 }
 };
 #define OpTableDef_BRKT_L (OpTableDef[(int)DelimType::BRKT_L])
 #define OpTableDef_BRKT_R (OpTableDef[(int)DelimType::BRKT_R])
@@ -63,6 +75,11 @@ const static OpDef OpTableDef[]={
 #define OpTableDef_MINUS (OpTableDef[(int)DelimType::MINUS])
 #define OpTableDef_SHL (OpTableDef[(int)DelimType::SHL])
 #define OpTableDef_SHR (OpTableDef[(int)DelimType::SHR])
+#define OpTableDef_LT (OpTableDef[(int)DelimType::LT])
+#define OpTableDef_LTEQ (OpTableDef[(int)DelimType::LTEQ])
+#define OpTableDef_GT (OpTableDef[(int)DelimType::GT])
+#define OpTableDef_GTEQ (OpTableDef[(int)DelimType::GTEQ])
+#define OpTableDef_NOTEQ (OpTableDef[(int)DelimType::NOTEQ])
 
 
 
@@ -87,6 +104,8 @@ public:
             case '%':d = &OpTableDef_MOD;break;
             case '+':d = &OpTableDef_PLUS;break;
             case '-':d = &OpTableDef_MINUS;break;
+            case '>':d = &OpTableDef_LT;break;
+            case '<':d = &OpTableDef_GT;break;
             default:
                 return ParserResult::NG_UnknownDelimiter;
             }
@@ -195,10 +214,14 @@ private:
     const static unsigned char TYPE_INT32 = 32;
     const static unsigned char TYPE_INT16 = 33;
     const static unsigned char TYPE_INT8  = 34;
-    //[D...][S] Dにデータ,SにサイズとTYPEを格納する。
-    //T=0-31    OPType
-    //T=32      32bit int(4)
-    //T=127-254 STR (T-127)
+    //[S][D...] SにサイズとTYPE,Dにデータを格納する。
+    //S=0-31    OPType                  1バイトの演算子定数
+    //S=32-34   int(4),int(2),int(1)    1+(1-4)バイトの整数
+    //S=64-95   keyword 0-31
+    //S=128-190 short string (0-62)
+    //S=191     long string
+    //S=192-254 short bytes
+    //S=255     long binaly
     MIB_UINT8 _buf[QSIZE] = {};
     MIB_UINT8 _stack[STACKDEPTH] = {};//格納位置
     int _sp=0;        //スタックポインタ   
@@ -289,17 +312,45 @@ public:
         switch (b[0])
         {
         case TYPE_INT32:out = (MIB_INT32)(((MIB_UINT32)b[1]) << 24) | (((MIB_UINT32)b[2]) << 16) | (((MIB_UINT32)b[3]) << 8) | b[4];break;
-        case TYPE_INT16:out = (MIB_INT32)(((MIB_UINT32)b[1]) << 8) | b[2];break;
-        case TYPE_INT8:out =  (MIB_INT32)b[1];break;
+        case TYPE_INT16:out = (MIB_INT16)(((MIB_UINT16)b[1]) << 8) | b[2];break;
+        case TYPE_INT8:out =  (MIB_INT8)b[1];break;
         default:
             return false;
         }
         ;
         return true;
     }
-   
-    //両方ともint変換可能型であること
-    static bool _isII(const MIB_UINT8 v1, const MIB_UINT8 v2) { return v1==v2 && (v1 == TYPE_INT32 || v1 == TYPE_INT16 || v1 == TYPE_INT8); }
+
+    /// <summary>
+    /// スタック先頭の２要素を、整数として取得する。
+    /// スタックの要素は両方とも整数であること。
+    /// </summary>
+    /// <param name="v1"></param>
+    /// <param name="v2"></param>
+    /// <returns></returns>
+    bool _popII(int& v1,int& v2)
+    {
+        auto t1 = 0, t2 = 0;
+        if (!this->peekType(-1, t1) || !this->peekType(-2, t2)) {
+            return false;
+        }
+        if (t1 == t2 && (t1 == TYPE_INT32 || t1 == TYPE_INT16 || t1 == TYPE_INT8)) {
+            if (this->peekInt(-1, v1) && !this->peekInt(-2, v2)) {
+                return false;
+            }
+            this->_sp -= 2;
+            return true;
+        }
+        return false;
+    }
+    /// <summary>
+    /// スタック先頭の2要素を文字列として解釈して1つの要素に統合する。
+    /// 要素は、整数、または文字列でなければならない。
+    /// </summary>
+    /// <returns></returns>
+    bool _popJoindStr() {
+
+    }
     bool execute()
     {
         for (;;) {
@@ -308,25 +359,58 @@ public:
                 return false;
             }
             switch (t1) {
+            case (int)DelimType::MOD:
+            {
+                auto a = 0, b = 0;
+                this->_sp--;
+                if (!this->_popII(a, b)) {
+                    return false;
+                }
+                this->pushInt(b % a);
+                continue;
+            }
+            case (int)DelimType::DIV:
+            {
+                auto a = 0, b = 0;
+                this->_sp--;
+                if (!this->_popII(a, b)) {
+                    return false;
+                }
+                this->pushInt(b/a);
+                continue;
+            }
+            case (int)DelimType::MUL:
+            {
+                auto a = 0, b = 0;
+                this->_sp--;
+                if (!this->_popII(a, b)) {
+                    return false;
+                }
+                this->pushInt(b * a);
+                continue;
+            }
+            case (int)DelimType::MINUS:
+            {
+                auto a = 0, b = 0;
+                this->_sp--;
+                if (!this->_popII(a, b)) {
+                    return false;
+                }
+                this->pushInt(b - a);
+                continue;
+            }
             case (int)DelimType::PLUS:
             {
-                auto t2 = 0, t3 = 0;
-                if (!this->peekType(-2, t2) || !this->peekType(-3, t3)) {
-                    return false;
+                auto a = 0, b = 0;
+                this->_sp--;
+                if (this->_popII(a, b)) {
+                    this->pushInt(b+a);
+                    continue;
+                //}else if (this->_pulsSSsub() {
+                //    //文字列加算を試す
+                //    continue;
                 }
-                // II,SI,FIが計算可能。他の場合は事前展開。
-                if (_isII(t2, t3)) {
-                    int a = 0, b = 0;
-                    if (!this->peekInt(-2, a) || !this->peekInt(-3, b)) {
-                        return false;
-                    }
-                    this->_sp -= 3;
-                    this->pushInt(a + b);
-                }
-                else {
-                    return false;
-                }
-                continue;
+                return false;
             }
             default:
                 return false;
@@ -340,7 +424,7 @@ public:
         if (!this->push(&c, 1)) {
             return false;
         }
-        //return false?true:this->execute();
+        this->execute();
         return true;
     }
     bool isEmpty() {
@@ -359,10 +443,14 @@ public:
             //スタックが空なら追記
         }
         else if (w->prio > s->prio) {
-            //otが優先度の高い演算子ならそのまま積む
+            //sが優先度の高い演算子ならそのまま積む
         }
         else {
             for (;;) {
+                //Lブラケットならおわり
+                if (w->delim == DelimType::BRKT_L) {
+                    break;
+                }
                 //優先度が同じか低い演算子なら払い出し
                 if (!this->pushOp(w)) {
                     return ParserResult::NG;  //スタック超過
@@ -378,18 +466,6 @@ public:
         }
         return ParserResult::OK;
     }
-
-    //bool getOp(const OpDef*& d) {
-    //    if (this->ptr == 0) {
-    //        return false;
-    //    }
-    //    auto c = *(this->ptr - 1);
-    //    if (c > 0 && c < 32) {
-    //        d = &OpTableDef[c];
-    //        return true;
-    //    }
-    //    return false;
-    //}
     
     /// <summary>
     /// バッファの内容をダンプする。
@@ -446,7 +522,7 @@ public:
         RawTokenParser parser(token);
         int sign = 1;
         bool hassign = false;
-        bool isaddsignop = false; //最後に読みだしたのが符号であるか
+        bool is_need_sign = false; //最後に読みだしたのが符号であるか
         //const OpDef* last_delim = NULL;//符号以外の直前に来たデリミタを記録
         for (;;) {
             ParserResult pr = iter.next(token);
@@ -481,7 +557,7 @@ public:
                 case DelimType::MINUS:
                     sign *= -1;
                 case DelimType::PLUS:
-                    if (!hassign && isaddsignop) {
+                    if (!hassign && is_need_sign) {
                         r = this->vs.marge(ops, &OpTableDef_PLUS);
                         if (r != ParserResult::OK) {
                             return r;
@@ -491,7 +567,7 @@ public:
                     continue;
                 }
                 hassign = false;
-                isaddsignop = false;
+                is_need_sign = false;
                 //TODO signを考慮して
                 //符号以外のデリミタがきた
                 switch (tmp_delim->delim) {
@@ -519,6 +595,7 @@ public:
                         }
                         this->ops.pop();//常に成功
                         if (w->delim == DelimType::BRKT_L) {
+                            is_need_sign = true;
                             break;
                         }
                         if (!this->vs.pushOp(w)) {
@@ -537,7 +614,7 @@ public:
             }
             case RawTokenType::NUMBER:
                 hassign = false;
-                isaddsignop = true;
+                is_need_sign = true;
                 int vi;
                 {
                     auto r = parser.asInt(vi, sign);
@@ -555,48 +632,52 @@ public:
     }
     static void test() {
         struct local {
-            static void parse(const char* s) {
+            static void parse(const char* s,const char* a) {
                 Rp rp;
                 RawTokenIterator rti(s);
                 rp.parse(rti);
-                printf("%s -> %s\n",s,rp.vs.sdump(rp.vs));
+                const char* r = rp.vs.sdump(rp.vs);
+                printf("%s -> %s(%s)\n",s, r,memcmp(a,r,strlen(a))==0?"OK":"NG");
             }
         };
-        //local::parse("1+127+32767+2147483647");
-        //local::parse("-1-128-32768-2147483648");
-        local::parse("1+(2+3+(4+5+6)+7)");
-        //local::parse("-1+-2");
-        //local::parse("1+2");
-        //local::parse("-1+-2*-3");
-        //local::parse("1+2*3");
-        //local::parse("-1+-2*-3+-4");
-        //local::parse("1+2*3+4");
-        //local::parse("-1+(-2+-3)");
-        //local::parse("1+(2+3)");
-        //local::parse("-1*(-2+-3)");
-        //local::parse("1*(2+3)");
-        //local::parse("-1*(-2*-3)");
-        //local::parse("1*(2*3)");
-        //local::parse("-1-(-2+-3)");
-        //local::parse("1-(2+3)");
-        //local::parse("-1*-(-2+-3)");
-        //local::parse("1*-(+2+3)");
-        //local::parse("-1*-(-2*-3)");
-        //local::parse("1*-(2*3)");
-        //local::parse("1*--(2*3)");
-        local::parse("-1+(-2+-3)");
-        local::parse("-1*+(-2+-3)");
-        //local::parse("3+4*2");//, 11), # 3 + 4 * 2 = 11
-        //local::parse("(7+3)*2");//,, 20), # (7 + 3) * 2 = 20
-        //local::parse("1+2+3+4+5");//,, 15), # 1 + 2 + 3 + 4 + 5 = 15
-        //local::parse("8*4-6/2");//,, 30), # 8 * 4 - 6 / 2 = 30
-        //local::parse("(1+2)*(3+4)");//,, 21), # (1 + 2) * (3 + 4) = 21
-        //local::parse("-2*4+3");//,, -5), #  - 2 * 4 + 3 = -5
-        //local::parse("-(3+4)*2");//,, -14), #  - (3 + 4) * 2 = -14
-        //local::parse("-2+3*4");//,, 10), #  - 2 + 3 * 4 = 10
-        //local::parse("-(2+3*4)");//,, -14), #  - (2 + 3 * 4) = -14
-        //local::parse("---2");//,, -2), #  - (-(-2)) = -2
-        //local::parse("--2*3");//,, 6), #  - (-2) * 3 = 6
+        local::parse("1+127+32767+2147483647"   ,"-2147450754");
+        local::parse("-1-128-32768-2147483648"  ,"2147450751");
+        local::parse("1+(2+3+(4+5+6)+7)", "28");
+        local::parse("-1+(-2+-3+(-4+-5+-6)+-7)", "-28");
+        local::parse("-1+-2"        ,"-3");
+        local::parse("1+2"          ,"3");
+        local::parse("-1+-2*-3"     ,"5");
+        local::parse("1+2*3"        ,"7");
+        local::parse("-1+-2*-3+-4"  ,"1");
+        local::parse("1+2*3+4"      ,"11");
+        local::parse("-1+(-2+-3)"   ,"-6");
+        local::parse("1+(2+3)"      ,"6");
+        local::parse("1*-(2*3)"     ,"-6");
+        local::parse("1*--(2*3)"    ,"6");
+        local::parse("-1+(-2+-3)"   ,"-6");
+        local::parse("-1*+(-2+-3)"  ,"5");
+        local::parse("-10/(-2+-3)", "2");
+        local::parse("-10%(-2+-3)", "0");
+
+        //chatGPT generated
+        local::parse("3+4*2", "11");         // 3 + 4 * 2 = 11
+        local::parse("(7+3)*2", "20");       // (7 + 3) * 2 = 20
+        local::parse("1+2+3+4+5", "15");     // 1 + 2 + 3 + 4 + 5 = 15
+        local::parse("8*4-6/2", "29");       // 8 * 4 - 6 / 2 = 16 (修正)
+        local::parse("(1+2)*(3+4)", "21");   // (1 + 2) * (3 + 4) = 21
+        local::parse("-2*4+3", "-5");        // -2 * 4 + 3 = -5
+        local::parse("-(3+4)*2", "-14");     // -(3 + 4) * 2 = -14
+        local::parse("-2+3*4", "10");        // -2 + 3 * 4 = 10
+        local::parse("-(2+3*4)", "-14");     // -(2 + 3 * 4) = -14
+        local::parse("---2", "-2");          // -(-(-2)) = -2
+        local::parse("--2*3", "6");          // -(-2) * 3 = 6
+        local::parse("(((2+3*3)*4))", "44");   // (((2 + 3) * 4)) = 20
+        local::parse("((2+3)*4+(5-2))", "23"); // ((2 + 3) * 4 + (5 - 2)) = 21
+        local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
+        local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
+
+
+
         return;
     }
 };

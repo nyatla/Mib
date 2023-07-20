@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <climits>
 #include <vcruntime_string.h>
+#include <stdlib.h>
 #include <stdio.h>
 
 
