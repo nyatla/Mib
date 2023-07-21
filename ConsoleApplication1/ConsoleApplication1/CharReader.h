@@ -1,5 +1,5 @@
 #pragma once
-#include "mib_types.h"
+#include "mib_stdlib.h"
 namespace MIB {
     /// <summary>
     /// NULL終端メモリブロックを読みだすイテレータ
