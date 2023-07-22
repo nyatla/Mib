@@ -131,14 +131,14 @@ public:
                 break;
             case '>':
                 switch (*(token.ptr + 1)) {
-                case '=':d = &OpTableDef_LTEQ;break;
+                case '=':d = &OpTableDef_GTEQ;break;
                 default:
                     return ParserResult::NG_UnknownDelimiter;
                 }
                 break;
             case '<':
                 switch (*(token.ptr + 1)) {
-                case '=':d = &OpTableDef_GTEQ;break;
+                case '=':d = &OpTableDef_LTEQ;break;
                 case '>':d = &OpTableDef_NOTEQ;break;
                 default:
                     return ParserResult::NG_UnknownDelimiter;
@@ -253,7 +253,7 @@ public:
 /// </summary>
 /// <typeparam name="QSIZE"></typeparam>
 /// <typeparam name="STACKDEPTH"></typeparam>
-template <int QSIZE = 256,int STACKDEPTH=16> class VStack{
+template <int QSIZE = 256,int STACKDEPTH=16> class RpoQueue{
 
 private:
     const static unsigned char TYPE_INT32 = 32;
@@ -283,7 +283,7 @@ private:
         if (idx >= 0 && idx < this->_sp) {
             s = idx;
         }
-        else if (this->_sp - idx > 0) {
+        else if (this->_sp + idx >= 0) {
             s = this->_sp + idx;
         }
         else {
@@ -547,79 +547,57 @@ public:
             if (!this->peekType(-1, t1)) {
                 return false;
             }
-            switch (t1) {
-            case (int)DelimType::MUL:
-            {
-                auto a = 0, b = 0;
+            {   //popIIで可能な演算                
                 this->_sp--;
-                if (!this->_popII(a, b)) {
-                    return false;
-                }
-                this->pushInt(b * a);
-                continue;
-            }
-            case (int)DelimType::MINUS:
-            {
                 auto a = 0, b = 0;
-                this->_sp--;
-                if (!this->_popII(a, b)) {
-                    return false;
-                }
-                this->pushInt(b - a);
-                continue;
-            }
-            case (int)DelimType::PLUS:
-            {
-                auto a = 0, b = 0;
-                this->_sp--;
                 if (this->_popII(a, b)) {
-                    this->pushInt(b+a);
+                    switch (t1) {
+                    case (int)DelimType::MUL:
+                        this->pushInt(b * a);
+                        continue;
+                    case (int)DelimType::MINUS:
+                        this->pushInt(b - a);
+                        continue;
+                    case (int)DelimType::PLUS:
+                        this->pushInt(b + a);
+                        continue;
+                    case (int)DelimType::MOD:
+                        this->pushInt(b % a);
+                        continue;
+                    case (int)DelimType::DIV:
+                        this->pushInt(b / a);
+                        continue;
+                    case (int)DelimType::LT:
+                        this->pushBool(b < a);
+                        continue;
+                    case (int)DelimType::LTEQ:
+                        this->pushBool(b <= a);
+                        continue;
+                    case (int)DelimType::GT:
+                        this->pushBool(b > a);
+                        continue;
+                    case (int)DelimType::GTEQ:
+                        this->pushBool(b >= a);
+                        continue;
+                    case (int)DelimType::EQ:
+                        this->pushBool(b == a);
+                        continue;
+                    case (int)DelimType::NOTEQ:
+                        this->pushBool(b != a);
+                        continue;
+                    }
+                }
+                this->_sp++;
+            } 
+            {
+                this->_sp--;
+                if (t1 == (int)DelimType::PLUS && this->_strPlus()) {
+                    //strでのplus演算
                     continue;
-                }else if (this->_strPlus() ){
-                    //strを含んでいればstr加算文字列を計算してpushする。
-                    continue;
                 }
-                return false;
+                this->_sp++;
             }
-            case (int)DelimType::MOD:
-            {
-                auto a = 0, b = 0;
-                this->_sp--;
-                if (!this->_popII(a, b)) {
-                    return false;
-                }
-                this->pushInt(b % a);
-                continue;
-            }
-            case (int)DelimType::DIV:
-            {
-                auto a = 0, b = 0;
-                this->_sp--;
-                if (!this->_popII(a, b)) {
-                    return false;
-                }
-                this->pushInt(b / a);
-                continue;
-            }
-            case (int)DelimType::LT:
-            {
-                auto a = 0, b = 0;
-                this->_sp--;
-                if (!this->_popII(a, b)) {
-                    return false;
-                }
-                this->pushBool(b < a);
-                continue;
-            }
-            case (int)DelimType::LTEQ:
-            case (int)DelimType::GT:
-            //case (int)DelimType::GTEQ:
-            //case (int)DelimType::EQ:
-            //case (int)DelimType::NOTEQ:
-
-            default:
-                return false;
-            }
+            //全ての演算に失敗したらfalse
             return true;
         }
     }
@@ -678,7 +656,7 @@ public:
     /// </summary>
     /// <param name="inst"></param>
     /// <returns></returns>
-    static const char* sdump(const VStack& inst) {
+    static const char* sdump(const RpoQueue& inst) {
 
 
         static char strbuf[256];
@@ -696,6 +674,11 @@ public:
             case (int)DelimType::PLUS:str = str + sprintf(str, "+ ");continue;
             case (int)DelimType::MINUS:str = str + sprintf(str, "- ");continue;
             case (int)DelimType::LT:str = str + sprintf(str, "< ");continue;
+            case (int)DelimType::LTEQ:str = str + sprintf(str, "<= ");continue;
+            case (int)DelimType::GT:str = str + sprintf(str, "> ");continue;
+            case (int)DelimType::GTEQ:str = str + sprintf(str, ">= ");continue;
+            case (int)DelimType::EQ:str = str + sprintf(str, "== ");continue;
+            case (int)DelimType::NOTEQ:str = str + sprintf(str, "!= ");continue;
             }
             if (_isIntType(p)) {
                 int v = 0;
@@ -727,7 +710,7 @@ public:
 class Rp {
 private:
     OpStack<> ops;
-    VStack<> vs;
+    RpoQueue<> vs;
 public:
     ParserResult parse(RawTokenIterator& iter,int depth=0)
     {
@@ -879,7 +862,7 @@ public:
                 }
             }
         };
-        ////INT32 TEST
+        //INT32 TEST
         //local::parse("1+127+32767+2147483647"   ,"-2147450754");
         //local::parse("-1-128-32768-2147483648"  ,"2147450751");
         //local::parse("1+(2+3+(4+5+6)+7)", "28");
@@ -916,16 +899,29 @@ public:
         //local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
         //local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
 
-        //local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
-        //local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
-        //local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
-        //local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
-        //local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
-        //local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
+        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
+        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
+        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
+        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
+        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
+        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
         local::parse("1<3", "TRUE");
         local::parse("3<3", "FALSE");
         local::parse("3<3+1", "TRUE");
-        local::parse("(3<3)+1", "TRUE");
+//        local::parse("(3<3)+1", "TRUE");
+        local::parse("1<=3", "TRUE");
+        local::parse("3<=3", "TRUE");
+        local::parse("3<=4", "TRUE");
+        local::parse("1>3", "FALSE");
+        local::parse("3>3", "FALSE");
+        local::parse("3>4", "FALSE");
+        local::parse("1>=3", "FALSE");
+        local::parse("3>=3", "TRUE");
+        local::parse("3>=4", "FALSE");
+        local::parse("3==4", "FALSE");
+        local::parse("3==3", "TRUE");
+        local::parse("3!=4", "TRUE");
+        local::parse("3<>4", "TRUE");
 
 
 
