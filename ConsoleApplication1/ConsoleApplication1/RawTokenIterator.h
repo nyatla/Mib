@@ -18,9 +18,10 @@ namespace MIB {
     /// <summary>
     /// 行単位でWORDを読みだすイテレータ
     /// [WORD] [DELIM] [NUMBER] [STR]の何れかに該当する文字列を返す。
-    /// DELIM   +-*^/%=;(),&|><!
+    /// DELIM   + - * ^ / % = ; ( ) , & | > < !
     ///         == <= >= != >> << <>
-    /// CONST   true false 
+    ///         Xor Mod And Or Not
+    /// CONST   TRUE FALSE
     /// NUMBER  [0-9]+
     /// WORD   他
     /// 終端は"\r"
@@ -70,9 +71,9 @@ namespace MIB {
                 auto r = iter.getc(c1);
                 switch (r) {
                 case ParserResult::OK:
-                    if ((c0 == '<' && (c1 == '>' || c1 == '<') || c1 == '=') ||
-                        (c0 == '>' && c1 == '>' || c1 == '=') ||
-                        (c0 == '!' && c1 == '=')
+                    if ((c0 == '<' && (c1 == '>' || c1 == '<') || c1 == '=') || // <<,<=,<>
+                        (c0 == '>' && c1 == '>' || c1 == '=') ||                // >>,>=
+                        (c0 == '!' && c1 == '=')                                // =!,==
                         ) {
                         token.size = 2;
                     }
@@ -116,12 +117,49 @@ namespace MIB {
                     return ParserResult::OK;
                 }
             }
+            //if (memchr("MAOXN", *token.ptr, 5) != NULL) {
+            //{   // DELIM: Xor Mod And Or Not
+            //    char c1 = 0;
+            //    auto r = iter.getc(c1);
+            //    switch (r) {
+            //    case ParserResult::OK:
+            //        if ((c0 == '<' && (c1 == '>' || c1 == '<') || c1 == '=') || // <<,<=,<>
+            //            (c0 == '>' && c1 == '>' || c1 == '=') ||                // >>,>=
+            //            (c0 == '!' && c1 == '=')                                // =!,==
+            //            ) {
+            //            token.size = 2;
+            //        }
+            //        else {
+            //            iter.seek(-1);
+            //            token.size = 1;
+            //        }
+            //        break;
+            //    default:
+            //        token.size = 1;
+            //    }
+            //    token.type = RawTokenType::DELIM;
+            //    return ParserResult::OK;
+            //}
+
+
+
+
             else {
                 // TEXT:   それ以外の連続値
                 for (;;s++) {
                     if (iter.getc(c0) != ParserResult::OK || isSp(c0)) {
                         token.size = s;
                         token.type = RawTokenType::TEXT;
+                        ////Xor,Mod,And,Or,Notについてはデリミタ
+                        //if (memchr("MAOXN", *token.ptr,5)!=NULL) {
+                        //    static const char* d[] = { "Mod","And","Or","Xor","Not" };
+                        //    for (auto i = 0;i < sizeof(d);i++) {
+                        //        if (strlen(d[i])==s && memcmp(d[i], token.ptr,s) == 0) {
+                        //            token.type = RawTokenType::DELIM;
+                        //            break;
+                        //        }
+                        //    }
+                        //}
                         return ParserResult::OK;
                     }
                 }

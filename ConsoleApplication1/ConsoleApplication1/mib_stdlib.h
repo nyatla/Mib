@@ -5,6 +5,7 @@
 #include <vcruntime_string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 
 
 
@@ -150,4 +151,13 @@ namespace MIB {
         }
         return count; // Add one more digit for the last non-zero digit
     }
+
+
+
+
+
+
+
+
+
 }

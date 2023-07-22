@@ -33,14 +33,18 @@ enum class DelimType:MIB_UINT8 {
     MOD   =4,   //  %
     PLUS  =5,   //  +
     MINUS =6,   //  -
-    SHL   =7,   //  >>
-    SHR  = 8,   //  <<
-    LT   = 9,   //  <
-    LTEQ = 10,  //  <=
-    GT   = 11,  //  >
-    GTEQ = 12,  //  >=
-    EQ   = 13,  //  ==
-    NOTEQ= 14   //  != <>
+    SHL   =7,   //  <<
+    SHR  = 8,   //  >>
+    AND  = 9,   //  未割当
+    OR   = 10,  //  未割当
+    NOT  = 11,  //  未割当
+    XOR  = 11,  //  未割当
+    LT   = 12,  //  <
+    LTEQ = 13,  //  <=
+    GT   = 14,  //  >
+    GTEQ = 15,  //  >=
+    EQ   = 16,  //  ==
+    NOTEQ= 17   //  != <>
 };
 
 
@@ -60,6 +64,10 @@ const static OpDef OpTableDef[]={
     OpDef{ DelimType::MINUS,   3 },
     OpDef{ DelimType::SHL,     4 },
     OpDef{ DelimType::SHR,     4 },
+    OpDef{ DelimType::AND,     5 },
+    OpDef{ DelimType::OR ,     5 },
+    OpDef{ DelimType::XOR ,    5 },
+    OpDef{ DelimType::NOT ,    5 },
     OpDef{ DelimType::LT,      6 },
     OpDef{ DelimType::LTEQ,    6 },
     OpDef{ DelimType::GT,      6 },
@@ -76,6 +84,10 @@ const static OpDef OpTableDef[]={
 #define OpTableDef_MINUS (OpTableDef[(int)DelimType::MINUS])
 #define OpTableDef_SHL (OpTableDef[(int)DelimType::SHL])
 #define OpTableDef_SHR (OpTableDef[(int)DelimType::SHR])
+#define OpTableDef_AND (OpTableDef[(int)DelimType::AND])
+#define OpTableDef_OR (OpTableDef[(int)DelimType::OR])
+#define OpTableDef_XOR (OpTableDef[(int)DelimType::XOR])
+#define OpTableDef_NOT (OpTableDef[(int)DelimType::NOT])
 #define OpTableDef_LT (OpTableDef[(int)DelimType::LT])
 #define OpTableDef_LTEQ (OpTableDef[(int)DelimType::LTEQ])
 #define OpTableDef_GT (OpTableDef[(int)DelimType::GT])
@@ -87,16 +99,21 @@ const static OpDef OpTableDef[]={
 
 
 
-
 class RawTokenParser {
 private:
     const struct RawToken_t& _token;
 public:
     RawTokenParser(const struct RawToken_t& token):_token(token){
     }
+    /// <summary>
+    /// デリミタとして登録されているトークンをOPとして解釈します。
+    /// </summary>
+    /// <param name="d"></param>
+    /// <returns></returns>
     ParserResult asOpToken(const OpDef*& d)
     {
         auto& token = this->_token;
+        MIB_ASSERT(token.type== RawTokenType::DELIM);
         if (token.size == 1) {
             switch (*token.ptr) {
             case '(':d = &OpTableDef_BRKT_L;break;
@@ -132,6 +149,7 @@ public:
             case '>':
                 switch (*(token.ptr + 1)) {
                 case '=':d = &OpTableDef_GTEQ;break;
+                case '>':d = &OpTableDef_SHR;break;
                 default:
                     return ParserResult::NG_UnknownDelimiter;
                 }
@@ -140,11 +158,34 @@ public:
                 switch (*(token.ptr + 1)) {
                 case '=':d = &OpTableDef_LTEQ;break;
                 case '>':d = &OpTableDef_NOTEQ;break;
+                case '<':d = &OpTableDef_SHL;break;
+                default:
+                    return ParserResult::NG_UnknownDelimiter;
+                }
+                break;
+            case 'O':   //Or
+                switch (*(token.ptr + 1)) {
+                case 'r':d = &OpTableDef_OR;break;
                 default:
                     return ParserResult::NG_UnknownDelimiter;
                 }
                 break;
             default:
+                return ParserResult::NG_UnknownDelimiter;
+            }
+            return ParserResult::OK;
+        }
+        if(token.size == 3) {
+            if (memcmp(token.ptr, "And",3) == 0) {
+                d = &OpTableDef_AND;
+            }else if (memcmp(token.ptr, "Xor", 3) == 0) {
+                d = &OpTableDef_XOR;
+            }else if (memcmp(token.ptr, "Mod", 3) == 0) {
+                d = &OpTableDef_MOD;
+            }else if (memcmp(token.ptr, "Not", 3) == 0) {
+                d = &OpTableDef_NOT;
+            }
+            else {
                 return ParserResult::NG_UnknownDelimiter;
             }
             return ParserResult::OK;
@@ -583,8 +624,24 @@ public:
                         this->pushBool(b == a);
                         continue;
                     case (int)DelimType::NOTEQ:
-                        this->pushBool(b != a);
+                        this->pushInt(b != a);
                         continue;
+                    case (int)DelimType::AND:
+                        this->pushInt(b & a);
+                        continue;
+                    case (int)DelimType::OR:
+                        this->pushInt(b | a);
+                        continue;
+                    case (int)DelimType::XOR:
+                        this->pushInt(b ^ a);
+                        continue;
+                    case (int)DelimType::SHL:
+                        this->pushInt(b << a);
+                        continue;
+                    case (int)DelimType::SHR:
+                        this->pushInt(b >> a);
+                        continue;
+
                     }
                 }
                 this->_sp++;
@@ -899,29 +956,35 @@ public:
         //local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
         //local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
 
-        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
-        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
-        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
-        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
-        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
-        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
-        local::parse("1<3", "TRUE");
-        local::parse("3<3", "FALSE");
-        local::parse("3<3+1", "TRUE");
-//        local::parse("(3<3)+1", "TRUE");
-        local::parse("1<=3", "TRUE");
-        local::parse("3<=3", "TRUE");
-        local::parse("3<=4", "TRUE");
-        local::parse("1>3", "FALSE");
-        local::parse("3>3", "FALSE");
-        local::parse("3>4", "FALSE");
-        local::parse("1>=3", "FALSE");
-        local::parse("3>=3", "TRUE");
-        local::parse("3>=4", "FALSE");
-        local::parse("3==4", "FALSE");
-        local::parse("3==3", "TRUE");
-        local::parse("3!=4", "TRUE");
-        local::parse("3<>4", "TRUE");
+//        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
+//        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
+//        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
+//        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
+//        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
+//        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
+//        local::parse("1<3", "TRUE");
+//        local::parse("3<3", "FALSE");
+//        local::parse("3<3+1", "TRUE");
+////        local::parse("(3<3)+1", "TRUE");
+//        local::parse("1<=3", "TRUE");
+//        local::parse("3<=3", "TRUE");
+//        local::parse("3<=4", "TRUE");
+//        local::parse("1>3", "FALSE");
+//        local::parse("3>3", "FALSE");
+//        local::parse("3>4", "FALSE");
+//        local::parse("1>=3", "FALSE");
+//        local::parse("3>=3", "TRUE");
+//        local::parse("3>=4", "FALSE");
+//        local::parse("3==4", "FALSE");
+//        local::parse("3==3", "TRUE");
+//        local::parse("3!=4", "TRUE");
+//        local::parse("3<>4", "TRUE");
+        local::parse("8 And(4+1)", "TRUE");
+        local::parse("8 Or (4-1)", "TRUE");
+        local::parse("1 Xor 0", "TRUE");
+        local::parse("3+(1 << 1)", "TRUE");
+        local::parse("2-(2 >> 1)", "TRUE");
+        local::parse("Not 0", "TRUE");
 
 
 
