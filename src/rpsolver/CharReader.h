@@ -2,16 +2,16 @@
 #include "mib_stdlib.h"
 namespace MIB {
     /// <summary>
-    /// NULLI’[ƒƒ‚ƒŠƒuƒƒbƒN‚ğ“Ç‚İ‚¾‚·ƒCƒeƒŒ[ƒ^
+    /// NULLçµ‚ç«¯ãƒ¡ãƒ¢ãƒªãƒ–ãƒ­ãƒƒã‚¯ã‚’èª­ã¿ã ã™ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿
     /// </summary>
     class ICharReader {
     public:
         virtual ~ICharReader() {};
         virtual bool getc(char& d) =0;
         /// <summary>
-        /// ƒ|ƒCƒ“ƒ^‚ğˆÚ“®‚µ‚Ü‚·B
+        /// ãƒã‚¤ãƒ³ã‚¿ã‚’ç§»å‹•ã—ã¾ã™ã€‚
         /// </summary>
-        /// <returns>ˆÚ“®‚É¬Œ÷‚µ‚½‚çTrue</returns>
+        /// <returns>ç§»å‹•ã«æˆåŠŸã—ãŸã‚‰True</returns>
         virtual bool seek(MIB_INT16 skip) = 0;
         virtual MIB_INT16 pos()const=0;
     };
@@ -20,7 +20,7 @@ namespace MIB {
 
 
     /// <summary>
-    /// NULLI’[ƒƒ‚ƒŠƒuƒƒbƒN‚ğ“Ç‚İ‚¾‚·ƒCƒeƒŒ[ƒ^
+    /// NULLçµ‚ç«¯ãƒ¡ãƒ¢ãƒªãƒ–ãƒ­ãƒƒã‚¯ã‚’èª­ã¿ã ã™ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿
     /// </summary>
     class CharReader :public ICharReader{
     private:
@@ -35,7 +35,7 @@ namespace MIB {
         /// 
         /// </summary>
         /// <param name="d"></param>
-        /// <returns>I’[‚É“’B‚·‚é‚Æfalse‚Å‚·</returns>
+        /// <returns>çµ‚ç«¯ã«åˆ°é”ã™ã‚‹ã¨falseã§ã™</returns>
         bool getc(char& d)override
         {
             if (this->_src[this->_pos] != 0) {
@@ -45,9 +45,9 @@ namespace MIB {
             return false;
         };
         /// <summary>
-        /// ƒ|ƒCƒ“ƒ^‚ğˆÚ“®‚µ‚Ü‚·B
+        /// ãƒã‚¤ãƒ³ã‚¿ã‚’ç§»å‹•ã—ã¾ã™ã€‚
         /// </summary>
-        /// <returns>ˆÚ“®‚É¸”s‚µ‚½</returns>
+        /// <returns>ç§»å‹•ã«å¤±æ•—ã—ãŸ</returns>
         bool seek(MIB_INT16 skip)override
         {
             if (skip < 0) {

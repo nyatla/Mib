@@ -65,7 +65,7 @@ namespace MIB {
         int i = 0;
         int isNegative = (num < 0);
 
-        // ”’l‚ğ•¶š—ñ‚É•ÏŠ·‚µ‚Ä‹t‡‚ÉŠi”[
+        // æ•°å€¤ã‚’æ–‡å­—åˆ—ã«å¤‰æ›ã—ã¦é€†é †ã«æ ¼ç´
         do {
             int rem = abs(num) % base;
             str[i++] = (rem < 10) ? (rem + '0') : (rem - 10 + 'A');
@@ -77,7 +77,7 @@ namespace MIB {
 
         str[i] = '\0';
 
-        // •¶š—ñ‚ğ”½“]
+        // æ–‡å­—åˆ—ã‚’åè»¢
         int start = 0;
         int end = i - 1;
         while (start < end) {
@@ -136,7 +136,7 @@ namespace MIB {
 
 
     /// <summary>
-    /// ®”‚ğ•¶š—ñ‚É‚µ‚½‚Æ‚«‚ÌŒ…”i•„†•t‚«j‚ğ•Ô‚µ‚Ü‚·B
+    /// æ•´æ•°ã‚’æ–‡å­—åˆ—ã«ã—ãŸã¨ãã®æ¡æ•°ï¼ˆç¬¦å·ä»˜ãï¼‰ã‚’è¿”ã—ã¾ã™ã€‚
     /// Generated ChatGPT 
     /// </summary>
     /// <param name="number"></param>
@@ -151,7 +151,7 @@ namespace MIB {
 
         // Handle negative numbers by making them positive
         if (number < 0) {
-            // ––”öŒ…‚ğ‹C‚É‚µ‚È‚ª‚ç³‚Ì’l‚É
+            // æœ«å°¾æ¡ã‚’æ°—ã«ã—ãªãŒã‚‰æ­£ã®å€¤ã«
             number = (number == INT32_MIN) ? INT32_MAX : -number;
             count++; // Add one more digit for the negative sign
         }

@@ -15,15 +15,15 @@ namespace MIB {
 
 
     /// <summary>
-    /// s’PˆÊ‚ÅWORD‚ğ“Ç‚İ‚¾‚·ƒCƒeƒŒ[ƒ^
-    /// [WORD] [DELIM] [NUMBER] [STR]‚Ì‰½‚ê‚©‚ÉŠY“–‚·‚é•¶š—ñ‚ğ•Ô‚·B
+    /// è¡Œå˜ä½ã§WORDã‚’èª­ã¿ã ã™ã‚¤ãƒ†ãƒ¬ãƒ¼ã‚¿
+    /// [WORD] [DELIM] [NUMBER] [STR]ã®ä½•ã‚Œã‹ã«è©²å½“ã™ã‚‹æ–‡å­—åˆ—ã‚’è¿”ã™ã€‚
     /// DELIM   + - * ^ / % = ; ( ) , & | > < !
     ///         == <= >= != >> << <>
     ///         Xor Mod And Or Not
     /// CONST   TRUE FALSE
     /// NUMBER  [0-9]+
-    /// WORD   ‘¼
-    /// I’[‚Í"\r"
+    /// WORD   ä»–
+    /// çµ‚ç«¯ã¯"\r"
     /// </summary>
     class RawTokenIterator {
     private:
@@ -46,7 +46,7 @@ namespace MIB {
         RawTokenIterator(const char* src) :_iter(CharReader(src)){
         }
         /// <summary>
-        /// Iterator‚©‚çSP‹æØ‚è‚Ìƒg[ƒNƒ“‚ğ“Ç‚İ‚¾‚·
+        /// Iteratorã‹ã‚‰SPåŒºåˆ‡ã‚Šã®ãƒˆãƒ¼ã‚¯ãƒ³ã‚’èª­ã¿ã ã™
         /// </summary>
         /// <returns></returns>
         ParserResult next(struct RawToken_t& token) {
@@ -58,18 +58,18 @@ namespace MIB {
                 if (!iter.getc(c0)) {
                     return ParserResult::NG_EOF;
                 }
-                //æ“ªSP‚ÌƒXƒLƒbƒv
+                //å…ˆé ­SPã®ã‚¹ã‚­ãƒƒãƒ—
                 if (isSp(c0)) {
                     continue;
                 }
-                //b[0]‚É’l
+                //b[0]ã«å€¤
                 token.ptr = iter.ptr() - 1;
                 s++;
                 break;
             }
             MIB_ASSERT(s > 0);
             if (isDelim(c0))
-            {   // DELIM: ()+-*/<>=&|‚Ì1•¶š‚ÌƒfƒŠƒ~ƒ^,‚Ü‚½‚Í <<,>>,<>,!=
+            {   // DELIM: ()+-*/<>=&|ã®1æ–‡å­—ã®ãƒ‡ãƒªãƒŸã‚¿,ã¾ãŸã¯ <<,>>,<>,!=
                 char c1 = 0;
                 if (iter.getc(c1)) {
                     if ((c0 == '<' && (c1 == '>' || c1 == '<') || c1 == '=') || // <<,<=,<>
@@ -89,7 +89,7 @@ namespace MIB {
                 return ParserResult::OK;
             }
             if (c0 == '"')
-            {   // STR:    "‚©‚çŠJn‚µA"‚ÅI‚í‚é•¶š—ñ
+            {   // STR:    "ã‹ã‚‰é–‹å§‹ã—ã€"ã§çµ‚ã‚ã‚‹æ–‡å­—åˆ—
                 for (s = 0;;s++) {
                     char c1;
                     if (!iter.getc(c1)) {
@@ -121,10 +121,10 @@ namespace MIB {
                 }
                 token.size = s;
                 token.type = RawTokenType::NUMBER;
-                return ParserResult::OK;//­‚È‚­‚Æ‚à1•¶š‚Íæ‚ê‚Ä‚é
+                return ParserResult::OK;//å°‘ãªãã¨ã‚‚1æ–‡å­—ã¯å–ã‚Œã¦ã‚‹
             }
             {
-                // TEXT:   ‚»‚êˆÈŠO‚Ì˜A‘±’l
+                // TEXT:   ãã‚Œä»¥å¤–ã®é€£ç¶šå€¤
                 for (;;s++) {
                     char c1;
                     if (!iter.getc(c1)) {
@@ -138,7 +138,7 @@ namespace MIB {
                     }
                 }
                 token.type = RawTokenType::TEXT;
-                //Xor,Mod,And,Or,Not‚É‚Â‚¢‚Ä‚ÍƒfƒŠƒ~ƒ^
+                //Xor,Mod,And,Or,Notã«ã¤ã„ã¦ã¯ãƒ‡ãƒªãƒŸã‚¿
                 if (memchr("MAOXN", *token.ptr,5)!=NULL) {
                     static const char* d[] = { "Mod","And","Or","Xor","Not" };
                     for (auto i = 0;i < sizeof(d);i++) {
@@ -149,7 +149,7 @@ namespace MIB {
                     }
                 }
                 token.size = s;
-                return ParserResult::OK;//­‚È‚­‚Æ‚à1•¶š‚Í‚ ‚é
+                return ParserResult::OK;//å°‘ãªãã¨ã‚‚1æ–‡å­—ã¯ã‚ã‚‹
             }
 
             return ParserResult::NG;   //INVALID_TOKEN
