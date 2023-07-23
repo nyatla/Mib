@@ -36,7 +36,18 @@ namespace MIB{
         NG_UnknownDelimiter,
         NG_UnknownToken,
     };
+
+    class ErrorMessage {
+    public:
+        const ParserResult eid;
+        const char* message;
+    public:
+        ErrorMessage(ParserResult eid_, const char* message_) :eid(eid_), message(message_) {}
+    };
+
+
 }
+
 
 
 /********************************************************************************

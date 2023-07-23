@@ -10,14 +10,6 @@ using namespace MIB;
 
 
 
-class ErrorMessage{
-public:
-    const MIB_UINT8 eid;
-    const char* message;
-public:
-    ErrorMessage(MIB_UINT8 eid_, const char* message_) :eid(eid_), message(message_) {}
-};
-
 
 
 
@@ -97,55 +89,6 @@ const static OpDef OpTableDef[]={
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-/// <summary>
-/// 演算子スタック
-/// </summary>
-/// <typeparam name="SIZE"></typeparam>
-template <int SIZE = 16> class OpStack {
-private:
-    MIB_UINT8 _buf[SIZE] = {};
-    int _ptr = 0;//次の格納位置
-public:
-    bool push(const OpDef* v)
-    {
-        if (this->_ptr >= SIZE) {
-            return false;
-        }
-        this->_buf[this->_ptr++] = (MIB_UINT8)v->delim;
-        return true;
-    };
-    bool pop() {
-        if (this->_ptr == 0) {
-            return false;
-        }
-        this->_ptr--;
-        return true;
-    };
-    bool peek(const OpDef*& d) {
-        if (this->_ptr == 0) {
-            return false;
-        }
-        d = &OpTableDef[this->_buf[this->_ptr-1]];
-        return true;
-    };
-    bool isEmpty() {
-        return this->_ptr == 0;
-    }
-    int ptr() { return this->_ptr; }
-
-};
 
 
 
@@ -594,42 +537,6 @@ public:
     bool isEmpty() {
         return this->_ptr == 0;
     }
-
-    /// <summary>
-    /// opsスタックにSをマージする
-    /// </summary>
-    /// <param name="ops"></param>
-    /// <param name="s"></param>
-    bool marge(OpStack<>& ops, const OpDef* s)
-    {
-        const OpDef* w = NULL;
-        if (!ops.peek(w)) {
-            //スタックが空なら追記
-        }
-        else if (w->prio > s->prio) {
-            //sが優先度の高い演算子ならそのまま積む
-        }
-        else {
-            for (;;) {
-                //Lブラケットならおわり
-                if (w->delim == DelimType::BRKT_L) {
-                    break;
-                }
-                //優先度が同じか低い演算子なら払い出し
-                if (!this->pushOp(w)) {
-                    return false;  //スタック超過
-                }
-                ops.pop();//常に成功
-                if (!ops.peek(w)) {
-                    break;
-                }
-            }
-        }
-        if (!ops.push(s)) {
-            return false;  //スタック超過
-        }
-        return true;
-    }
     
     /// <summary>
     /// バッファの内容をダンプする。
@@ -687,6 +594,91 @@ public:
     }
 
 };
+
+
+
+/// <summary>
+/// 演算子スタック
+/// </summary>
+/// <typeparam name="SIZE"></typeparam>
+template <int SIZE = 16> class OpStack {
+private:
+    MIB_UINT8 _buf[SIZE] = {};
+    int _ptr = 0;//次の格納位置
+public:
+    /// <summary>
+    /// 演算子をスタックに積む。優先順位が低い場合はqに払いだす。
+    /// </summary>
+    /// <param name="v"></param>
+    /// <param name="q"></param>
+    /// <returns></returns>
+    bool push(const OpDef* s, RpQueue<>& q)
+    {
+        //超過チェック
+        if (this->_ptr >= SIZE) {
+            return false;
+        }
+        const OpDef* w;
+        if (this->peek(w)) {
+            switch (s->delim) {
+            case DelimType::BRKT_R:
+                //ここでDelimType::BRKT_Lの存在チェックしないとエラー時にキューが変更されるけどとりあえず無視
+                //払い出しのみ
+                for (;;) {
+                    this->pop();
+                    if (w->delim == DelimType::BRKT_L) {
+                        break;
+                    }
+                    if (!q.pushOp(w)) {
+                        return false;  //スタック超過
+                    }
+                    if (!this->peek(w)) {
+                        return false;  //括弧の対応がおかしい
+                    }
+                }
+                return true;
+            case DelimType::BRKT_L:
+                //積むだけ
+                break;
+            default:
+                //でかけりゃ払い出し
+                if (w->prio <= s->prio) {
+                    //払い出し
+                    q.pushOp(w);
+                    this->pop();
+                }
+                break;
+            }
+        }
+        //積む
+        this->_buf[this->_ptr++] = (MIB_UINT8)s->delim;
+        return true;
+    };
+    bool pop() {
+        if (this->_ptr == 0) {
+            return false;
+        }
+        this->_ptr--;
+        return true;
+    };
+    bool peek(const OpDef*& d) {
+        if (this->_ptr == 0) {
+            return false;
+        }
+        d = &OpTableDef[this->_buf[this->_ptr - 1]];
+        return true;
+    };
+    bool isEmpty() {
+        return this->_ptr == 0;
+    }
+    int ptr() { return this->_ptr; }
+
+};
+
+
+
+
+
 
 class RpSolver {
 private:
@@ -883,7 +875,7 @@ public:
                     sign *= -1;
                 case DelimType::PLUS:
                     if (!hassign && is_need_sign) {
-                        if (!this->vs.marge(ops, &OpTableDef_PLUS)) {
+                        if (!this->ops.push(&OpTableDef_PLUS,vs)) {
                             return ParserResult::NG;
                         }
                     }
@@ -901,36 +893,24 @@ public:
                         if (!this->vs.pushInt(-1)) {
                             return ParserResult::NG_StackOverFlow;
                         }
-                        if (!this->vs.marge(ops, &OpTableDef_MUL)) {
+                        if (!this->ops.push(&OpTableDef_MUL, vs)) {
                             return ParserResult::NG;
-
                         }
                         sign = 1;//リセット
                     }
-                    if (!this->ops.push(tmp_delim)) {
-                        //優先順位無視で積む
-                        return ParserResult::NG_StackOverFlow;
+                    if (!this->ops.push(tmp_delim,this->vs)) {
+                        return ParserResult::NG;
                     }
                     continue;;
                 case DelimType::BRKT_R:
-                    for (;;) {
-                        const OpDef* w;
-                        if (!this->ops.peek(w)) {
-                            return ParserResult::NG;  //括弧の対応がおかしい
-                        }
-                        this->ops.pop();//常に成功
-                        if (w->delim == DelimType::BRKT_L) {
-                            is_need_sign = true;
-                            break;
-                        }
-                        if (!this->vs.pushOp(w)) {
-                            return ParserResult::NG;  //スタック超過
-                        }
+                    if (!this->ops.push(tmp_delim, this->vs)) {
+                        return ParserResult::NG;
                     }
+                    is_need_sign = true;
                     continue;
                 }
                 {
-                    if (!this->vs.marge(ops, tmp_delim)) {
+                    if (!this->ops.push(tmp_delim, vs)) {
                         return ParserResult::NG;
                     }
                 }
@@ -992,77 +972,77 @@ public:
         };
         local::parse("1+2*3)", "10");
 
-//        //INT32 TEST
-//        local::parse("1+127+32767+2147483647"   ,"-2147450754");
-//        local::parse("-1-128-32768-2147483648"  ,"2147450751");
-//        local::parse("1+(2+3+(4+5+6)+7)", "28");
-//        local::parse("-1+(-2+-3+(-4+-5+-6)+-7)", "-28");
-//        local::parse("-1+-2"        ,"-3");
-//        local::parse("1+2"          ,"3");
-//        local::parse("-1+-2*-3"     ,"5");
-//        local::parse("1+2*3"        ,"7");
-//        local::parse("-1+-2*-3+-4"  ,"1");
-//        local::parse("1+2*3+4"      ,"11");
-//        local::parse("-1+(-2+-3)"   ,"-6");
-//        local::parse("1+(2+3)"      ,"6");
-//        local::parse("1*-(2*3)"     ,"-6");
-//        local::parse("1*--(2*3)"    ,"6");
-//        local::parse("-1+(-2+-3)"   ,"-6");
-//        local::parse("-1*+(-2+-3)"  ,"5");
-//        local::parse("-10/(-2+-3)", "2");
-//        local::parse("-10%(-2+-3)", "0");
-//
-//        ////chatGPT generated test
-//        local::parse("3+4*2", "11");         // 3 + 4 * 2 = 11
-//        local::parse("(7+3)*2", "20");       // (7 + 3) * 2 = 20
-//        local::parse("1+2+3+4+5", "15");     // 1 + 2 + 3 + 4 + 5 = 15
-//        local::parse("8*4-6/2", "29");       // 8 * 4 - 6 / 2 = 16 (修正)
-//        local::parse("(1+2)*(3+4)", "21");   // (1 + 2) * (3 + 4) = 21
-//        local::parse("-2*4+3", "-5");        // -2 * 4 + 3 = -5
-//        local::parse("-(3+4)*2", "-14");     // -(3 + 4) * 2 = -14
-//        local::parse("-2+3*4", "10");        // -2 + 3 * 4 = 10
-//        local::parse("-(2+3*4)", "-14");     // -(2 + 3 * 4) = -14
-//        local::parse("---2", "-2");          // -(-(-2)) = -2
-//        local::parse("--2*3", "6");          // -(-2) * 3 = 6
-//        local::parse("(((2+3*3)*4))", "44");   // (((2 + 3) * 4)) = 20
-//        local::parse("((2+3)*4+(5-2))", "23"); // ((2 + 3) * 4 + (5 - 2)) = 21
-//        local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
-//        local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
-//
-//        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
-//        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
-//        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
-//        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
-//        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
-//        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
-//        local::parse("1<3", "TRUE");
-//        local::parse("3<3", "FALSE");
-//        local::parse("3<3+1", "TRUE");
-////////        local::parse("(3<3)+1", "TRUE");
-//        local::parse("1<=3", "TRUE");
-//        local::parse("3<=3", "TRUE");
-//        local::parse("3<=4", "TRUE");
-//        local::parse("1>3", "FALSE");
-//        local::parse("3>3", "FALSE");
-//        local::parse("3>4", "FALSE");
-//        local::parse("1>=3", "FALSE");
-//        local::parse("3>=3", "TRUE");
-//        local::parse("3>=4", "FALSE");
-//        local::parse("3==4", "FALSE");
-//        local::parse("3==3", "TRUE");
-//        local::parse("3!=4", "TRUE");
-//        local::parse("3<>4", "TRUE");
-//        local::parse("9 And(4+1)", "1");
-//        local::parse("8 Or (4-1)", "11");
-//        local::parse("1 Xor 0", "1");
-//        local::parse("3+(1 << 1)", "5");
-//        local::parse("2-(2 >> 1)", "1");
-//        local::parse("4-2 << 1", "4");
-//        local::parse("Not 0", "-1");
-//        local::parse("Not (1==1)", "FALSE");
-//        local::parse("(1!=1) And (1==1)", "FALSE");
-//        local::parse("(2==2) And (1==1)", "TRUE");
-//        local::parse("(1!=1) Or (1==1)", "TRUE");
+        //INT32 TEST
+        local::parse("1+127+32767+2147483647"   ,"-2147450754");
+        local::parse("-1-128-32768-2147483648"  ,"2147450751");
+        local::parse("1+(2+3+(4+5+6)+7)", "28");
+        local::parse("-1+(-2+-3+(-4+-5+-6)+-7)", "-28");
+        local::parse("-1+-2"        ,"-3");
+        local::parse("1+2"          ,"3");
+        local::parse("-1+-2*-3"     ,"5");
+        local::parse("1+2*3"        ,"7");
+        local::parse("-1+-2*-3+-4"  ,"1");
+        local::parse("1+2*3+4"      ,"11");
+        local::parse("-1+(-2+-3)"   ,"-6");
+        local::parse("1+(2+3)"      ,"6");
+        local::parse("1*-(2*3)"     ,"-6");
+        local::parse("1*--(2*3)"    ,"6");
+        local::parse("-1+(-2+-3)"   ,"-6");
+        local::parse("-1*+(-2+-3)"  ,"5");
+        local::parse("-10/(-2+-3)", "2");
+        local::parse("-10%(-2+-3)", "0");
+
+        ////chatGPT generated test
+        local::parse("3+4*2", "11");         // 3 + 4 * 2 = 11
+        local::parse("(7+3)*2", "20");       // (7 + 3) * 2 = 20
+        local::parse("1+2+3+4+5", "15");     // 1 + 2 + 3 + 4 + 5 = 15
+        local::parse("8*4-6/2", "29");       // 8 * 4 - 6 / 2 = 16 (修正)
+        local::parse("(1+2)*(3+4)", "21");   // (1 + 2) * (3 + 4) = 21
+        local::parse("-2*4+3", "-5");        // -2 * 4 + 3 = -5
+        local::parse("-(3+4)*2", "-14");     // -(3 + 4) * 2 = -14
+        local::parse("-2+3*4", "10");        // -2 + 3 * 4 = 10
+        local::parse("-(2+3*4)", "-14");     // -(2 + 3 * 4) = -14
+        local::parse("---2", "-2");          // -(-(-2)) = -2
+        local::parse("--2*3", "6");          // -(-2) * 3 = 6
+        local::parse("(((2+3*3)*4))", "44");   // (((2 + 3) * 4)) = 20
+        local::parse("((2+3)*4+(5-2))", "23"); // ((2 + 3) * 4 + (5 - 2)) = 21
+        local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
+        local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
+
+        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
+        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
+        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
+        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
+        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
+        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
+        local::parse("1<3", "TRUE");
+        local::parse("3<3", "FALSE");
+        local::parse("3<3+1", "TRUE");
+//////        local::parse("(3<3)+1", "TRUE");
+        local::parse("1<=3", "TRUE");
+        local::parse("3<=3", "TRUE");
+        local::parse("3<=4", "TRUE");
+        local::parse("1>3", "FALSE");
+        local::parse("3>3", "FALSE");
+        local::parse("3>4", "FALSE");
+        local::parse("1>=3", "FALSE");
+        local::parse("3>=3", "TRUE");
+        local::parse("3>=4", "FALSE");
+        local::parse("3==4", "FALSE");
+        local::parse("3==3", "TRUE");
+        local::parse("3!=4", "TRUE");
+        local::parse("3<>4", "TRUE");
+        local::parse("9 And(4+1)", "1");
+        local::parse("8 Or (4-1)", "11");
+        local::parse("1 Xor 0", "1");
+        local::parse("3+(1 << 1)", "5");
+        local::parse("2-(2 >> 1)", "1");
+        local::parse("4-2 << 1", "4");
+        local::parse("Not 0", "-1");
+        local::parse("Not (1==1)", "FALSE");
+        local::parse("(1!=1) And (1==1)", "FALSE");
+        local::parse("(2==2) And (1==1)", "TRUE");
+        local::parse("(1!=1) Or (1==1)", "TRUE");
         return;
     }
 #endif
