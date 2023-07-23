@@ -1,5 +1,5 @@
 #pragma once
-#include "mib_stdlib.h"
+#include "./_resolver_imports.h"
 namespace MIB {
     /// <summary>
     /// NULL終端メモリブロックを読みだすイテレータ
@@ -14,10 +14,8 @@ namespace MIB {
         /// <returns>移動に成功したらTrue</returns>
         virtual bool seek(MIB_INT16 skip) = 0;
         virtual MIB_INT16 pos()const=0;
+        virtual const char* ptr()const = 0;
     };
-
-
-
 
     /// <summary>
     /// NULL終端メモリブロックを読みだすイテレータ
@@ -68,7 +66,7 @@ namespace MIB {
         MIB_INT16 pos()const override {
             return this->_pos;
         }
-        const char* ptr() {
+        const char* ptr()const override{
             return this->_pos + this->_src;
         }
 

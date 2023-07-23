@@ -1,5 +1,5 @@
 #pragma once
-#include "mib_stdlib.h"
+#include "./_resolver_imports.h"
 #include "./CharReader.h"
 namespace MIB {
 
