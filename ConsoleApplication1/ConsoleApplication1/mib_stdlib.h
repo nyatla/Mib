@@ -27,6 +27,7 @@ namespace MIB{
         OK,
         NG,
         NG_EOF,
+        NG_IO,
         NG_TokenTooLong,
         NG_StackOverFlow,
         NG_SyntaxError,

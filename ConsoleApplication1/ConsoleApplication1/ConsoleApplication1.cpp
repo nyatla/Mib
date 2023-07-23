@@ -38,13 +38,13 @@ enum class DelimType:MIB_UINT8 {
     AND  = 9,   //  未割当
     OR   = 10,  //  未割当
     NOT  = 11,  //  未割当
-    XOR  = 11,  //  未割当
-    LT   = 12,  //  <
-    LTEQ = 13,  //  <=
-    GT   = 14,  //  >
-    GTEQ = 15,  //  >=
-    EQ   = 16,  //  ==
-    NOTEQ= 17   //  != <>
+    XOR  = 12,  //  未割当
+    LT   = 13,  //  <
+    LTEQ = 14,  //  <=
+    GT   = 15,  //  >
+    GTEQ = 16,  //  >=
+    EQ   = 17,  //  ==
+    NOTEQ= 18   //  != <>
 };
 
 
@@ -66,8 +66,8 @@ const static OpDef OpTableDef[]={
     OpDef{ DelimType::SHR,     4 },
     OpDef{ DelimType::AND,     5 },
     OpDef{ DelimType::OR ,     5 },
-    OpDef{ DelimType::XOR ,    5 },
     OpDef{ DelimType::NOT ,    5 },
+    OpDef{ DelimType::XOR ,    5 },
     OpDef{ DelimType::LT,      6 },
     OpDef{ DelimType::LTEQ,    6 },
     OpDef{ DelimType::GT,      6 },
@@ -361,7 +361,7 @@ private:
 
 public:
     /// <summary>
-    /// 
+    /// メモリブロックをpushします。
     /// </summary>
     /// <param name="d">NULLの場合、スタックポインタのみ移動します。</param>
     /// <param name="s"></param>
@@ -420,9 +420,28 @@ public:
         MIB_INT8 d = v ? TYPE_BOOL_TRUE : TYPE_BOOL_FALSE;
         return this->push(&d, 1);
     }
+    bool pop(int n)
+    {
+        if (n > this->_sp) {
+            return false;
+        }
+        this->_sp -= n;
+        return true;
+    }
 
 
-
+    /// <summary>
+    /// N番目のスタックが取得可能であり、型が一致するかチェックする
+    /// </summary>
+    /// <param name="idx"></param>
+    /// <returns></returns>
+    bool isTypeEqual(int idx,int c)const{
+        int w;
+        if (!this->peekType(idx, w)) {
+            return false;
+        }
+        return w == c;
+    }
 
     /// <summary>
     /// N番目のスタックのタイプ値を得る。
@@ -496,38 +515,23 @@ public:
     static inline bool _isIntType(MIB_UINT8 t) { return (t == TYPE_INT32 || t == TYPE_INT16 || t == TYPE_INT8); }
     static inline bool _isStrType(MIB_UINT8 t) { return (t == TYPE_LONG_STR || (TYPE_SHORT_STR_MIN <= t && t <= TYPE_SHORT_STR_MAX)); }
 
+
+
+private:
     /// <summary>
-    /// スタック先頭の２要素を、整数として取得する。
-    /// スタックの要素は両方とも整数であること。
+    /// 文字列の加算関数。
+    /// スタックレイアウトは,[+][STR][STR]であること。
     /// </summary>
-    /// <param name="v1"></param>
-    /// <param name="v2"></param>
     /// <returns></returns>
-    bool _popII(int& v1,int& v2)
-    {
-        auto t1 = 0, t2 = 0;
-        if (!this->peekType(-1, t1) || !this->peekType(-2, t2)) {
+    bool _strProc(int t1) {
+        //演算子の確認
+        if (t1!=(int)DelimType::PLUS){
             return false;
         }
-        if (t1 == t2 && _isIntType(t1)) {
-            if (this->peekInt(-1, v1) && !this->peekInt(-2, v2)) {
-                return false;
-            }
-            this->_sp -= 2;
-            return true;
-        }
-        return false;
-    }
-    /// <summary>
-    /// 文字列の加算関数
-    /// スタック先頭の2要素のうち、どちらから文字列であれば、結合した文字列１つに統合する。
-    /// </summary>
-    /// <returns></returns>
-    bool _strPlus() {
         //strがどちらかにあること
         int t[2] = {};
         for (int i = 0;i < 2;i++) {
-            if (!this->peekType(-1 - i, t[i])) {
+            if (!this->peekType(-2 - i, t[i])) {
                 return false;
             }
         }
@@ -539,14 +543,14 @@ public:
         char work[16];
         for (int i = 0;i < 2;i++) {
             if (_isStrType(t[i])) {
-                if (this->peekStr(-1 - i, s[i], l[i])) {
+                if (this->peekStr(-2 - i, s[i], l[i])) {
                     continue;
                 }
             }
             //両方がintということはない
             if (_isIntType(t[i])) {
                 int w=0;
-                if (!this->peekInt(-1 - i, w)) {
+                if (!this->peekInt(-2 - i, w)) {
                     return false;
                 }
                 l[i] = countDigits(w);
@@ -561,8 +565,8 @@ public:
         int d2 = hsize;//d2の書込み位置
         int d1 = d2 + l[1];
 
-        this->_sp -= 2;
-        //スタックポインタを2個破棄して領域をpush
+        this->pop(3);
+        //スタックポインタを3個破棄して領域をpush
         if (!this->push(NULL, hsize + sl)) {
             return false;
         }
@@ -581,6 +585,52 @@ public:
         return true;
 
     }
+    bool ii_int(int op, int a, int b, int& d)const
+    {
+        switch (op) {
+        case (int)DelimType::MUL:   d = (b * a);break;
+        case (int)DelimType::MINUS: d = (b - a);break;
+        case (int)DelimType::PLUS:  d = (b + a);break;
+        case (int)DelimType::MOD:   d = (b % a);break;
+        case (int)DelimType::DIV:   d = (b / a);break;
+        case (int)DelimType::AND:   d = (b & a);break;
+        case (int)DelimType::OR:    d = (b | a);break;
+        case (int)DelimType::XOR:   d = (b ^ a);break;
+        case (int)DelimType::SHL:   d = (b << a);break;
+        case (int)DelimType::SHR:   d = (b >> a);break;
+        default:
+            return false;
+        }
+        return true;
+    }
+    bool ii_bool(int op, int a, int b, bool& d)const
+    {
+        switch (op) {
+        case (int)DelimType::LT:    d = (b < a);break;
+        case (int)DelimType::LTEQ:  d = (b <= a);break;
+        case (int)DelimType::GT:    d = (b > a);break;
+        case (int)DelimType::GTEQ:  d = (b >= a);break;
+        case (int)DelimType::EQ:    d = (b == a);break;
+        case (int)DelimType::NOTEQ: d = (b != a);break;
+        default:
+            return false;
+        }
+        return true;
+    }
+    bool bb_bool(int op, bool a, bool b, bool& d)const
+    {
+        switch (op) {
+        case (int)DelimType::AND:   d = (b && a);break;
+        case (int)DelimType::OR:    d = (b || a);break;
+        case (int)DelimType::EQ:    d = (b == a);break;
+        case (int)DelimType::NOTEQ: d = (b != a);break;
+        default:
+            return false;
+        }
+        return true;
+    }
+
+public:
     bool execute()
     {
         for (;;) {
@@ -588,71 +638,60 @@ public:
             if (!this->peekType(-1, t1)) {
                 return false;
             }
-            {   //popIIで可能な演算                
-                this->_sp--;
-                auto a = 0, b = 0;
-                if (this->_popII(a, b)) {
-                    switch (t1) {
-                    case (int)DelimType::MUL:
-                        this->pushInt(b * a);
-                        continue;
-                    case (int)DelimType::MINUS:
-                        this->pushInt(b - a);
-                        continue;
-                    case (int)DelimType::PLUS:
-                        this->pushInt(b + a);
-                        continue;
-                    case (int)DelimType::MOD:
-                        this->pushInt(b % a);
-                        continue;
-                    case (int)DelimType::DIV:
-                        this->pushInt(b / a);
-                        continue;
-                    case (int)DelimType::LT:
-                        this->pushBool(b < a);
-                        continue;
-                    case (int)DelimType::LTEQ:
-                        this->pushBool(b <= a);
-                        continue;
-                    case (int)DelimType::GT:
-                        this->pushBool(b > a);
-                        continue;
-                    case (int)DelimType::GTEQ:
-                        this->pushBool(b >= a);
-                        continue;
-                    case (int)DelimType::EQ:
-                        this->pushBool(b == a);
-                        continue;
-                    case (int)DelimType::NOTEQ:
-                        this->pushInt(b != a);
-                        continue;
-                    case (int)DelimType::AND:
-                        this->pushInt(b & a);
-                        continue;
-                    case (int)DelimType::OR:
-                        this->pushInt(b | a);
-                        continue;
-                    case (int)DelimType::XOR:
-                        this->pushInt(b ^ a);
-                        continue;
-                    case (int)DelimType::SHL:
-                        this->pushInt(b << a);
-                        continue;
-                    case (int)DelimType::SHR:
-                        this->pushInt(b >> a);
-                        continue;
 
+            union {
+                int _int;
+                bool _bool;
+            }d;
+            {   //Int,(Int)
+                auto a = 0, b = 0;
+                if (this->peekInt(-2, a)) {
+                    if (this->peekInt(-3, b)) {
+                        //int int OP = int  
+                        if (ii_int(t1, a, b, d._int))
+                        {
+                            this->pop(3);
+                            this->pushInt(d._int);
+                            continue;
+                        }
+                        //int int OP = bool
+                        if (ii_bool(t1, a, b, d._bool))
+                        {
+                            this->pop(3);
+                            this->pushBool(d._bool);
+                            continue;
+                        }
+                    }
+                    if (t1 == (int)DelimType::NOT) {
+                        this->pop(2);
+                        this->pushInt(~a);
+                        continue;
                     }
                 }
-                this->_sp++;
-            } 
-            {
-                this->_sp--;
-                if (t1 == (int)DelimType::PLUS && this->_strPlus()) {
-                    //strでのplus演算
-                    continue;
+            }
+            {   //Bool,(Bool)
+                bool a, b;
+                if (this->peekBool(-2, a)) {
+                    if (this->peekBool(-3, b)) {
+                        //int int OP = bool
+                        if (bb_bool(t1, a, b, d._bool))
+                        {
+                            this->pop(3);
+                            this->pushBool(d._bool);
+                            continue;
+                        }
+                    }
+                    if (t1 == (int)DelimType::NOT) {
+                        this->pop(2);
+                        this->pushBool(!a);
+                        continue;
+                    }
                 }
-                this->_sp++;
+
+            }
+            if (this->_strProc(t1)) {
+                //strでのplus演算
+                continue;
             }
             //全ての演算に失敗したらfalse
             return true;
@@ -779,6 +818,7 @@ public:
         //const OpDef* last_delim = NULL;//符号以外の直前に来たデリミタを記録
         for (;;) {
             ParserResult pr = iter.next(token);
+//            printf("%s\n",this->vs.sdump(this->vs));
             switch (pr)
             {
             case ParserResult::OK:break;
@@ -836,11 +876,11 @@ public:
                         }
                         sign = 1;//リセット
                     }
-                case DelimType::LT:
                     if (!this->ops.push(tmp_delim)) {
+                        //優先順位無視で積む
                         return ParserResult::NG_StackOverFlow;
                     }
-                    continue;
+                    continue;;
                 case DelimType::BRKT_R:
                     for (;;) {
                         const OpDef* w;
@@ -904,6 +944,7 @@ public:
 
         }
     }
+#ifdef TEST
     static void test() {
         struct local {
             static void parse(const char* s,const char* a) {
@@ -919,77 +960,82 @@ public:
                 }
             }
         };
+        local::parse("1+(2+(3+4))", "10");
+
         //INT32 TEST
-        //local::parse("1+127+32767+2147483647"   ,"-2147450754");
-        //local::parse("-1-128-32768-2147483648"  ,"2147450751");
-        //local::parse("1+(2+3+(4+5+6)+7)", "28");
-        //local::parse("-1+(-2+-3+(-4+-5+-6)+-7)", "-28");
-        //local::parse("-1+-2"        ,"-3");
-        //local::parse("1+2"          ,"3");
-        //local::parse("-1+-2*-3"     ,"5");
-        //local::parse("1+2*3"        ,"7");
-        //local::parse("-1+-2*-3+-4"  ,"1");
-        //local::parse("1+2*3+4"      ,"11");
-        //local::parse("-1+(-2+-3)"   ,"-6");
-        //local::parse("1+(2+3)"      ,"6");
-        //local::parse("1*-(2*3)"     ,"-6");
-        //local::parse("1*--(2*3)"    ,"6");
-        //local::parse("-1+(-2+-3)"   ,"-6");
-        //local::parse("-1*+(-2+-3)"  ,"5");
-        //local::parse("-10/(-2+-3)", "2");
-        //local::parse("-10%(-2+-3)", "0");
+        local::parse("1+127+32767+2147483647"   ,"-2147450754");
+        local::parse("-1-128-32768-2147483648"  ,"2147450751");
+        local::parse("1+(2+3+(4+5+6)+7)", "28");
+        local::parse("-1+(-2+-3+(-4+-5+-6)+-7)", "-28");
+        local::parse("-1+-2"        ,"-3");
+        local::parse("1+2"          ,"3");
+        local::parse("-1+-2*-3"     ,"5");
+        local::parse("1+2*3"        ,"7");
+        local::parse("-1+-2*-3+-4"  ,"1");
+        local::parse("1+2*3+4"      ,"11");
+        local::parse("-1+(-2+-3)"   ,"-6");
+        local::parse("1+(2+3)"      ,"6");
+        local::parse("1*-(2*3)"     ,"-6");
+        local::parse("1*--(2*3)"    ,"6");
+        local::parse("-1+(-2+-3)"   ,"-6");
+        local::parse("-1*+(-2+-3)"  ,"5");
+        local::parse("-10/(-2+-3)", "2");
+        local::parse("-10%(-2+-3)", "0");
 
         ////chatGPT generated test
-        //local::parse("3+4*2", "11");         // 3 + 4 * 2 = 11
-        //local::parse("(7+3)*2", "20");       // (7 + 3) * 2 = 20
-        //local::parse("1+2+3+4+5", "15");     // 1 + 2 + 3 + 4 + 5 = 15
-        //local::parse("8*4-6/2", "29");       // 8 * 4 - 6 / 2 = 16 (修正)
-        //local::parse("(1+2)*(3+4)", "21");   // (1 + 2) * (3 + 4) = 21
-        //local::parse("-2*4+3", "-5");        // -2 * 4 + 3 = -5
-        //local::parse("-(3+4)*2", "-14");     // -(3 + 4) * 2 = -14
-        //local::parse("-2+3*4", "10");        // -2 + 3 * 4 = 10
-        //local::parse("-(2+3*4)", "-14");     // -(2 + 3 * 4) = -14
-        //local::parse("---2", "-2");          // -(-(-2)) = -2
-        //local::parse("--2*3", "6");          // -(-2) * 3 = 6
-        //local::parse("(((2+3*3)*4))", "44");   // (((2 + 3) * 4)) = 20
-        //local::parse("((2+3)*4+(5-2))", "23"); // ((2 + 3) * 4 + (5 - 2)) = 21
-        //local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
-        //local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
+        local::parse("3+4*2", "11");         // 3 + 4 * 2 = 11
+        local::parse("(7+3)*2", "20");       // (7 + 3) * 2 = 20
+        local::parse("1+2+3+4+5", "15");     // 1 + 2 + 3 + 4 + 5 = 15
+        local::parse("8*4-6/2", "29");       // 8 * 4 - 6 / 2 = 16 (修正)
+        local::parse("(1+2)*(3+4)", "21");   // (1 + 2) * (3 + 4) = 21
+        local::parse("-2*4+3", "-5");        // -2 * 4 + 3 = -5
+        local::parse("-(3+4)*2", "-14");     // -(3 + 4) * 2 = -14
+        local::parse("-2+3*4", "10");        // -2 + 3 * 4 = 10
+        local::parse("-(2+3*4)", "-14");     // -(2 + 3 * 4) = -14
+        local::parse("---2", "-2");          // -(-(-2)) = -2
+        local::parse("--2*3", "6");          // -(-2) * 3 = 6
+        local::parse("(((2+3*3)*4))", "44");   // (((2 + 3) * 4)) = 20
+        local::parse("((2+3)*4+(5-2))", "23"); // ((2 + 3) * 4 + (5 - 2)) = 21
+        local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
+        local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
 
-//        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
-//        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
-//        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
-//        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
-//        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
-//        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
-//        local::parse("1<3", "TRUE");
-//        local::parse("3<3", "FALSE");
-//        local::parse("3<3+1", "TRUE");
-////        local::parse("(3<3)+1", "TRUE");
-//        local::parse("1<=3", "TRUE");
-//        local::parse("3<=3", "TRUE");
-//        local::parse("3<=4", "TRUE");
-//        local::parse("1>3", "FALSE");
-//        local::parse("3>3", "FALSE");
-//        local::parse("3>4", "FALSE");
-//        local::parse("1>=3", "FALSE");
-//        local::parse("3>=3", "TRUE");
-//        local::parse("3>=4", "FALSE");
-//        local::parse("3==4", "FALSE");
-//        local::parse("3==3", "TRUE");
-//        local::parse("3!=4", "TRUE");
-//        local::parse("3<>4", "TRUE");
-        local::parse("8 And(4+1)", "TRUE");
-        local::parse("8 Or (4-1)", "TRUE");
-        local::parse("1 Xor 0", "TRUE");
-        local::parse("3+(1 << 1)", "TRUE");
-        local::parse("2-(2 >> 1)", "TRUE");
-        local::parse("Not 0", "TRUE");
-
-
-
+        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
+        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
+        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
+        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
+        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
+        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
+        local::parse("1<3", "TRUE");
+        local::parse("3<3", "FALSE");
+        local::parse("3<3+1", "TRUE");
+//////        local::parse("(3<3)+1", "TRUE");
+        local::parse("1<=3", "TRUE");
+        local::parse("3<=3", "TRUE");
+        local::parse("3<=4", "TRUE");
+        local::parse("1>3", "FALSE");
+        local::parse("3>3", "FALSE");
+        local::parse("3>4", "FALSE");
+        local::parse("1>=3", "FALSE");
+        local::parse("3>=3", "TRUE");
+        local::parse("3>=4", "FALSE");
+        local::parse("3==4", "FALSE");
+        local::parse("3==3", "TRUE");
+        local::parse("3!=4", "TRUE");
+        local::parse("3<>4", "TRUE");
+        local::parse("9 And(4+1)", "1");
+        local::parse("8 Or (4-1)", "11");
+        local::parse("1 Xor 0", "1");
+        local::parse("3+(1 << 1)", "5");
+        local::parse("2-(2 >> 1)", "1");
+        local::parse("4-2 << 1", "4");
+        local::parse("Not 0", "-1");
+        local::parse("Not (1==1)", "FALSE");
+        local::parse("(1!=1) And (1==1)", "FALSE");
+        local::parse("(2==2) And (1==1)", "TRUE");
+        local::parse("(1!=1) Or (1==1)", "TRUE");
         return;
     }
+#endif
 };
 
 

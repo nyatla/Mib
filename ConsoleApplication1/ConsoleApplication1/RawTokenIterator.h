@@ -35,6 +35,13 @@ namespace MIB {
         static bool isNum(char c) {
             return c >= '0' && c <= '9';
         }
+        static bool isDelim(char c) {
+            return strchr("+-*^/%=;(),&|><!", c) != NULL;
+        }
+        static bool isKeywordChar(char c) {
+            return ('a'<c && c<'z')||('A' < c && c < 'Z')|| ('0' < c && c < '9')||( memchr("_",c,1) != NULL);
+        }
+
 
     public:
         RawTokenIterator(const char* src) :_iter(CharReader(src)){
@@ -47,13 +54,10 @@ namespace MIB {
             //auto& b = token.buf;
             int s = 0;
             auto& iter = this->_iter;
-            char c0= 0;
+            char c0;
             for (;;) {
-                auto r = iter.getc(c0);
-                switch (r) {
-                case ParserResult::OK:break;
-                case ParserResult::NG_EOF:return ParserResult::NG_EOF;
-                default:return ParserResult::NG;
+                if (!iter.getc(c0)) {
+                    return ParserResult::NG_EOF;
                 }
                 //先頭SPのスキップ
                 if (isSp(c0)) {
@@ -65,12 +69,10 @@ namespace MIB {
                 break;
             }
             MIB_ASSERT(s > 0);
-            if (strchr("+-*^/%=;(),&|><!", c0))
+            if (isDelim(c0))
             {   // DELIM: ()+-*/<>=&|の1文字のデリミタ,または <<,>>,<>,!=
                 char c1 = 0;
-                auto r = iter.getc(c1);
-                switch (r) {
-                case ParserResult::OK:
+                if (iter.getc(c1)) {
                     if ((c0 == '<' && (c1 == '>' || c1 == '<') || c1 == '=') || // <<,<=,<>
                         (c0 == '>' && c1 == '>' || c1 == '=') ||                // >>,>=
                         (c0 == '!' && c1 == '=')                                // =!,==
@@ -81,91 +83,77 @@ namespace MIB {
                         iter.seek(-1);
                         token.size = 1;
                     }
-                    break;
-                default:
+                }else{
                     token.size = 1;
                 }
                 token.type = RawTokenType::DELIM;
                 return ParserResult::OK;
             }
-            else if (c0 == '"')
+            if (c0 == '"')
             {   // STR:    "から開始し、"で終わる文字列
                 for (s = 0;;s++) {
-                    if (iter.getc(c0) != ParserResult::OK) {
+                    char c1;
+                    if (!iter.getc(c1)) {
                         break;
                     }
-                    if (c0 == '"') {
+                    if (c1 == '"') {
                         token.ptr++;
                         token.size = s;
                         token.type = RawTokenType::STR;
                         return ParserResult::OK;
                     }
                 }
+                return ParserResult::NG_EOF;
             }
-            else if (isNum(c0))
+            if (isNum(c0))
             {   // NUMBER: [0-9]+
                 for (;;s++) {
-                    auto r = iter.getc(c0);
-                    if (r == ParserResult::OK && isNum(c0)) {
+                    char c1;
+                    if (!iter.getc(c1)) {
+                        break;
+                    }
+                    if(isNum(c1)) {
                         continue;
                     }
-                    token.size = s;
-                    token.type = RawTokenType::NUMBER;
-                    if (r!= ParserResult::NG_EOF) {
-                        iter.seek(-1);
+                    if (!iter.seek(-1)) {
+                        return ParserResult::NG_IO;
                     }
-                    return ParserResult::OK;
+                    break;
                 }
+                token.size = s;
+                token.type = RawTokenType::NUMBER;
+                return ParserResult::OK;//少なくとも1文字は取れてる
             }
-            //if (memchr("MAOXN", *token.ptr, 5) != NULL) {
-            //{   // DELIM: Xor Mod And Or Not
-            //    char c1 = 0;
-            //    auto r = iter.getc(c1);
-            //    switch (r) {
-            //    case ParserResult::OK:
-            //        if ((c0 == '<' && (c1 == '>' || c1 == '<') || c1 == '=') || // <<,<=,<>
-            //            (c0 == '>' && c1 == '>' || c1 == '=') ||                // >>,>=
-            //            (c0 == '!' && c1 == '=')                                // =!,==
-            //            ) {
-            //            token.size = 2;
-            //        }
-            //        else {
-            //            iter.seek(-1);
-            //            token.size = 1;
-            //        }
-            //        break;
-            //    default:
-            //        token.size = 1;
-            //    }
-            //    token.type = RawTokenType::DELIM;
-            //    return ParserResult::OK;
-            //}
-
-
-
-
-            else {
+            {
                 // TEXT:   それ以外の連続値
                 for (;;s++) {
-                    if (iter.getc(c0) != ParserResult::OK || isSp(c0)) {
-                        token.size = s;
-                        token.type = RawTokenType::TEXT;
-                        ////Xor,Mod,And,Or,Notについてはデリミタ
-                        //if (memchr("MAOXN", *token.ptr,5)!=NULL) {
-                        //    static const char* d[] = { "Mod","And","Or","Xor","Not" };
-                        //    for (auto i = 0;i < sizeof(d);i++) {
-                        //        if (strlen(d[i])==s && memcmp(d[i], token.ptr,s) == 0) {
-                        //            token.type = RawTokenType::DELIM;
-                        //            break;
-                        //        }
-                        //    }
-                        //}
-                        return ParserResult::OK;
+                    char c1;
+                    if (!iter.getc(c1)) {
+                        break;
+                    }
+                    if (!isKeywordChar(c1)) {
+                        if (!iter.seek(-1)) {
+                            return ParserResult::NG_IO;
+                        }
+                        break;
                     }
                 }
+                token.type = RawTokenType::TEXT;
+                //Xor,Mod,And,Or,Notについてはデリミタ
+                if (memchr("MAOXN", *token.ptr,5)!=NULL) {
+                    static const char* d[] = { "Mod","And","Or","Xor","Not" };
+                    for (auto i = 0;i < sizeof(d);i++) {
+                        if (strlen(d[i])==s && memcmp(d[i], token.ptr,s) == 0) {
+                            token.type = RawTokenType::DELIM;
+                            break;
+                        }
+                    }
+                }
+                token.size = s;
+                return ParserResult::OK;//少なくとも1文字はある
             }
 
-            return ParserResult::NG_TokenTooLong;   //TOKEN TOO LONG
+            return ParserResult::NG;   //INVALID_TOKEN
         };
     public:
 #ifdef TEST
