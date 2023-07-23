@@ -99,146 +99,6 @@ const static OpDef OpTableDef[]={
 
 
 
-class RawTokenParser {
-private:
-    const struct RawToken_t& _token;
-public:
-    RawTokenParser(const struct RawToken_t& token):_token(token){
-    }
-    /// <summary>
-    /// デリミタとして登録されているトークンをOPとして解釈します。
-    /// </summary>
-    /// <param name="d"></param>
-    /// <returns></returns>
-    ParserResult asOpToken(const OpDef*& d)
-    {
-        auto& token = this->_token;
-        MIB_ASSERT(token.type== RawTokenType::DELIM);
-        if (token.size == 1) {
-            switch (*token.ptr) {
-            case '(':d = &OpTableDef_BRKT_L;break;
-            case ')':d = &OpTableDef_BRKT_R;break;
-            case '*':d = &OpTableDef_MUL;break;
-            case '/':d = &OpTableDef_DIV;break;
-            case '%':d = &OpTableDef_MOD;break;
-            case '+':d = &OpTableDef_PLUS;break;
-            case '-':d = &OpTableDef_MINUS;break;
-            case '<':d = &OpTableDef_LT;break;
-            case '>':d = &OpTableDef_GT;break;
-            default:
-                return ParserResult::NG_UnknownDelimiter;
-            }
-            return ParserResult::OK;
-        }
-        if (token.size == 2) {
-            switch (*token.ptr) {
-            case '!':
-                switch (*(token.ptr + 1)) {
-                case '=':d = &OpTableDef_NOTEQ;break;
-                default:
-                    return ParserResult::NG_UnknownDelimiter;
-                }
-                break;
-            case '=':
-                switch (*(token.ptr + 1)) {
-                case '=':d = &OpTableDef_EQ;break;
-                default:
-                    return ParserResult::NG_UnknownDelimiter;
-                }
-                break;
-            case '>':
-                switch (*(token.ptr + 1)) {
-                case '=':d = &OpTableDef_GTEQ;break;
-                case '>':d = &OpTableDef_SHR;break;
-                default:
-                    return ParserResult::NG_UnknownDelimiter;
-                }
-                break;
-            case '<':
-                switch (*(token.ptr + 1)) {
-                case '=':d = &OpTableDef_LTEQ;break;
-                case '>':d = &OpTableDef_NOTEQ;break;
-                case '<':d = &OpTableDef_SHL;break;
-                default:
-                    return ParserResult::NG_UnknownDelimiter;
-                }
-                break;
-            case 'O':   //Or
-                switch (*(token.ptr + 1)) {
-                case 'r':d = &OpTableDef_OR;break;
-                default:
-                    return ParserResult::NG_UnknownDelimiter;
-                }
-                break;
-            default:
-                return ParserResult::NG_UnknownDelimiter;
-            }
-            return ParserResult::OK;
-        }
-        if(token.size == 3) {
-            if (memcmp(token.ptr, "And",3) == 0) {
-                d = &OpTableDef_AND;
-            }else if (memcmp(token.ptr, "Xor", 3) == 0) {
-                d = &OpTableDef_XOR;
-            }else if (memcmp(token.ptr, "Mod", 3) == 0) {
-                d = &OpTableDef_MOD;
-            }else if (memcmp(token.ptr, "Not", 3) == 0) {
-                d = &OpTableDef_NOT;
-            }
-            else {
-                return ParserResult::NG_UnknownDelimiter;
-            }
-            return ParserResult::OK;
-        }
-        return ParserResult::NG_UnknownDelimiter;
-    }
-    /// <summary>
-    /// トークンを数値に変換する
-    /// </summary>
-    /// <param name="d"></param>
-    /// <param name="sign"></param>
-    /// <returns></returns>
-    ParserResult asInt(int& out, int sign = 1)
-    {
-        auto& token = this->_token;
-        int t = 0;
-        int i;
-        if (sign > 0) {
-            for (i = 0;i<token.size;i++) {
-                int d = token.ptr[i] - '0';
-                if (0 > d || d > 9) {
-                    return ParserResult::NG_InvalidNumber;
-                }
-
-                if (t > 0 && (INT32_MAX - t - d) / t < 9) {
-                    return ParserResult::NG_NumberRange;
-                }
-                t = t * 10 + d;
-            };
-        }
-        else {
-            for (i = 0;i<token.size;i++) {
-                int d = token.ptr[i] - '0';
-                if (0 > d || d > 9) {
-                    return ParserResult::NG_InvalidNumber;
-                }
-                if (t < 0 && (INT_MIN - t + d) / t < 9) {
-                    return ParserResult::NG_NumberRange;
-                }
-                t = t * 10 - d;
-            };
-        }
-        out = t;
-        return i > 0 ? ParserResult::OK : ParserResult::NG;
-    }
-    ParserResult asStr(const MIB_INT8*& out, int& len)const
-    {
-        auto& token = this->_token;
-        out=token.ptr;
-        len = token.size;
-        return ParserResult::OK;
-    }
-};
 
 
 
@@ -249,6 +109,10 @@ public:
 
 
 
+/// <summary>
+/// 演算子スタック
+/// </summary>
+/// <typeparam name="SIZE"></typeparam>
 template <int SIZE = 16> class OpStack {
 private:
     MIB_UINT8 _buf[SIZE] = {};
@@ -287,14 +151,27 @@ public:
 
 /// <summary>
 /// 逆ポーランド記法の計算キューです。
-/// 演算子 +-*/%()
-/// 値型  INT32 STRING BOOL
-/// 
-/// 
+/// 演算子:
+///     演算順序
+///         ( )
+///     演算 減算、積算、除算、余剰
+///         +               ->  (int, int) (str, int) (int, str) (str, str)
+///         - * / % Mod     ->  (int, int)
+///     ビット演算子又は論理演算子
+///         Xor Or And      ->  (int, int) (bool, bool)
+///     ビット演算子又は論理演算子
+///         Not             ->  (int)   (bool)
+///     ビット演算子
+///         << >>           ->  (int, int)
+///     比較演算子
+///         < > <= >=       ->  (int,int)
+///         == <> !=        ->  (int,int) (bool, bool)   
+/// 値型:
+///     INT32 STRING BOOL
 /// </summary>
 /// <typeparam name="QSIZE"></typeparam>
 /// <typeparam name="STACKDEPTH"></typeparam>
-template <int QSIZE = 256,int STACKDEPTH=16> class RpoQueue{
+template <int QSIZE = 256,int STACKDEPTH=16> class RpQueue{
 
 private:
     const static unsigned char TYPE_INT32 = 32;
@@ -457,6 +334,12 @@ public:
         dst = *p;
         return true;
     }
+    /// <summary>
+    /// N番目のスタックからint値を取り出す。
+    /// </summary>
+    /// <param name="idx"></param>
+    /// <param name="out"></param>
+    /// <returns></returns>
     bool peekInt(int idx, int& out)const
     {
         auto b = this->constPtr(idx);
@@ -514,8 +397,6 @@ public:
 
     static inline bool _isIntType(MIB_UINT8 t) { return (t == TYPE_INT32 || t == TYPE_INT16 || t == TYPE_INT8); }
     static inline bool _isStrType(MIB_UINT8 t) { return (t == TYPE_LONG_STR || (TYPE_SHORT_STR_MIN <= t && t <= TYPE_SHORT_STR_MAX)); }
-
-
 
 private:
     /// <summary>
@@ -631,6 +512,10 @@ private:
     }
 
 public:
+    /// <summary>
+    /// キューの演算を実行する。
+    /// </summary>
+    /// <returns></returns>
     bool execute()
     {
         for (;;) {
@@ -715,7 +600,7 @@ public:
     /// </summary>
     /// <param name="ops"></param>
     /// <param name="s"></param>
-    ParserResult marge(OpStack<>& ops, const OpDef* s)
+    bool marge(OpStack<>& ops, const OpDef* s)
     {
         const OpDef* w = NULL;
         if (!ops.peek(w)) {
@@ -732,7 +617,7 @@ public:
                 }
                 //優先度が同じか低い演算子なら払い出し
                 if (!this->pushOp(w)) {
-                    return ParserResult::NG;  //スタック超過
+                    return false;  //スタック超過
                 }
                 ops.pop();//常に成功
                 if (!ops.peek(w)) {
@@ -741,9 +626,9 @@ public:
             }
         }
         if (!ops.push(s)) {
-            return ParserResult::NG;  //スタック超過
+            return false;  //スタック超過
         }
-        return ParserResult::OK;
+        return true;
     }
     
     /// <summary>
@@ -752,7 +637,7 @@ public:
     /// </summary>
     /// <param name="inst"></param>
     /// <returns></returns>
-    static const char* sdump(const RpoQueue& inst) {
+    static const char* sdump(const RpQueue& inst) {
 
 
         static char strbuf[256];
@@ -803,10 +688,157 @@ public:
 
 };
 
-class Rp {
+class RpSolver {
+private:
+    /// <summary>
+    /// サイズ付テキストトークンを値トークンに変換するパーサ。
+    /// </summary>
+    class RawTokenParser {
+    private:
+        const struct RawToken_t& _token;
+    public:
+        RawTokenParser(const struct RawToken_t& token) :_token(token) {
+        }
+        /// <summary>
+        /// デリミタとして登録されているトークンをOPとして解釈します。
+        /// </summary>
+        /// <param name="d"></param>
+        /// <returns></returns>
+        ParserResult asOpToken(const OpDef*& d)
+        {
+            auto& token = this->_token;
+            MIB_ASSERT(token.type == RawTokenType::DELIM);
+            if (token.size == 1) {
+                switch (*token.ptr) {
+                case '(':d = &OpTableDef_BRKT_L;break;
+                case ')':d = &OpTableDef_BRKT_R;break;
+                case '*':d = &OpTableDef_MUL;break;
+                case '/':d = &OpTableDef_DIV;break;
+                case '%':d = &OpTableDef_MOD;break;
+                case '+':d = &OpTableDef_PLUS;break;
+                case '-':d = &OpTableDef_MINUS;break;
+                case '<':d = &OpTableDef_LT;break;
+                case '>':d = &OpTableDef_GT;break;
+                default:
+                    return ParserResult::NG_UnknownDelimiter;
+                }
+                return ParserResult::OK;
+            }
+            if (token.size == 2) {
+                switch (*token.ptr) {
+                case '!':
+                    switch (*(token.ptr + 1)) {
+                    case '=':d = &OpTableDef_NOTEQ;break;
+                    default:
+                        return ParserResult::NG_UnknownDelimiter;
+                    }
+                    break;
+                case '=':
+                    switch (*(token.ptr + 1)) {
+                    case '=':d = &OpTableDef_EQ;break;
+                    default:
+                        return ParserResult::NG_UnknownDelimiter;
+                    }
+                    break;
+                case '>':
+                    switch (*(token.ptr + 1)) {
+                    case '=':d = &OpTableDef_GTEQ;break;
+                    case '>':d = &OpTableDef_SHR;break;
+                    default:
+                        return ParserResult::NG_UnknownDelimiter;
+                    }
+                    break;
+                case '<':
+                    switch (*(token.ptr + 1)) {
+                    case '=':d = &OpTableDef_LTEQ;break;
+                    case '>':d = &OpTableDef_NOTEQ;break;
+                    case '<':d = &OpTableDef_SHL;break;
+                    default:
+                        return ParserResult::NG_UnknownDelimiter;
+                    }
+                    break;
+                case 'O':   //Or
+                    switch (*(token.ptr + 1)) {
+                    case 'r':d = &OpTableDef_OR;break;
+                    default:
+                        return ParserResult::NG_UnknownDelimiter;
+                    }
+                    break;
+                default:
+                    return ParserResult::NG_UnknownDelimiter;
+                }
+                return ParserResult::OK;
+            }
+            if (token.size == 3) {
+                if (memcmp(token.ptr, "And", 3) == 0) {
+                    d = &OpTableDef_AND;
+                }
+                else if (memcmp(token.ptr, "Xor", 3) == 0) {
+                    d = &OpTableDef_XOR;
+                }
+                else if (memcmp(token.ptr, "Mod", 3) == 0) {
+                    d = &OpTableDef_MOD;
+                }
+                else if (memcmp(token.ptr, "Not", 3) == 0) {
+                    d = &OpTableDef_NOT;
+                }
+                else {
+                    return ParserResult::NG_UnknownDelimiter;
+                }
+                return ParserResult::OK;
+            }
+            return ParserResult::NG_UnknownDelimiter;
+        }
+        /// <summary>
+        /// トークンを数値に変換する
+        /// </summary>
+        /// <param name="d"></param>
+        /// <param name="sign"></param>
+        /// <returns></returns>
+        ParserResult asInt(int& out, int sign = 1)
+        {
+            auto& token = this->_token;
+            int t = 0;
+            int i;
+            if (sign > 0) {
+                for (i = 0;i < token.size;i++) {
+                    int d = token.ptr[i] - '0';
+                    if (0 > d || d > 9) {
+                        return ParserResult::NG_InvalidNumber;
+                    }
+
+                    if (t > 0 && (INT32_MAX - t - d) / t < 9) {
+                        return ParserResult::NG_NumberRange;
+                    }
+                    t = t * 10 + d;
+                };
+            }
+            else {
+                for (i = 0;i < token.size;i++) {
+                    int d = token.ptr[i] - '0';
+                    if (0 > d || d > 9) {
+                        return ParserResult::NG_InvalidNumber;
+                    }
+                    if (t < 0 && (INT_MIN - t + d) / t < 9) {
+                        return ParserResult::NG_NumberRange;
+                    }
+                    t = t * 10 - d;
+                };
+            }
+            out = t;
+            return i > 0 ? ParserResult::OK : ParserResult::NG;
+        }
+        ParserResult asStr(const MIB_INT8*& out, int& len)const
+        {
+            auto& token = this->_token;
+            out = token.ptr;
+            len = token.size;
+            return ParserResult::OK;
+        }
+    };
 private:
     OpStack<> ops;
-    RpoQueue<> vs;
+    RpQueue<> vs;
 public:
     ParserResult parse(RawTokenIterator& iter,int depth=0)
     {
@@ -851,9 +883,8 @@ public:
                     sign *= -1;
                 case DelimType::PLUS:
                     if (!hassign && is_need_sign) {
-                        r = this->vs.marge(ops, &OpTableDef_PLUS);
-                        if (r != ParserResult::OK) {
-                            return r;
+                        if (!this->vs.marge(ops, &OpTableDef_PLUS)) {
+                            return ParserResult::NG;
                         }
                     }
                     hassign = true;
@@ -870,9 +901,9 @@ public:
                         if (!this->vs.pushInt(-1)) {
                             return ParserResult::NG_StackOverFlow;
                         }
-                        r = this->vs.marge(ops, &OpTableDef_MUL);
-                        if (r != ParserResult::OK) {
-                            return r;
+                        if (!this->vs.marge(ops, &OpTableDef_MUL)) {
+                            return ParserResult::NG;
+
                         }
                         sign = 1;//リセット
                     }
@@ -899,9 +930,8 @@ public:
                     continue;
                 }
                 {
-                    auto r = this->vs.marge(ops, tmp_delim);
-                    if (r != ParserResult::OK) {
-                        return r;
+                    if (!this->vs.marge(ops, tmp_delim)) {
+                        return ParserResult::NG;
                     }
                 }
                 break;
@@ -948,91 +978,91 @@ public:
     static void test() {
         struct local {
             static void parse(const char* s,const char* a) {
-                Rp rp;
+                RpSolver rp;
                 RawTokenIterator rti(s);
                 auto r = rp.parse(rti);
+                const char* m = rp.vs.sdump(rp.vs);
                 if (r==ParserResult::OK) {
-                    const char* r = rp.vs.sdump(rp.vs);
-                    printf("%s -> %s(%s)\n", s, r, memcmp(a, r, strlen(a)) == 0 ? "OK" : "NG");
+                    printf("%s -> %s(%s)\n", s, m, memcmp(a, m, strlen(a)) == 0 ? "OK" : "NG");
                 }
                 else {
-                    printf("ERR %d\n", r);
+                    printf("ERR %d %s\n", r,m);
                 }
             }
         };
-        local::parse("1+(2+(3+4))", "10");
+        local::parse("1+2*3)", "10");
 
-        //INT32 TEST
-        local::parse("1+127+32767+2147483647"   ,"-2147450754");
-        local::parse("-1-128-32768-2147483648"  ,"2147450751");
-        local::parse("1+(2+3+(4+5+6)+7)", "28");
-        local::parse("-1+(-2+-3+(-4+-5+-6)+-7)", "-28");
-        local::parse("-1+-2"        ,"-3");
-        local::parse("1+2"          ,"3");
-        local::parse("-1+-2*-3"     ,"5");
-        local::parse("1+2*3"        ,"7");
-        local::parse("-1+-2*-3+-4"  ,"1");
-        local::parse("1+2*3+4"      ,"11");
-        local::parse("-1+(-2+-3)"   ,"-6");
-        local::parse("1+(2+3)"      ,"6");
-        local::parse("1*-(2*3)"     ,"-6");
-        local::parse("1*--(2*3)"    ,"6");
-        local::parse("-1+(-2+-3)"   ,"-6");
-        local::parse("-1*+(-2+-3)"  ,"5");
-        local::parse("-10/(-2+-3)", "2");
-        local::parse("-10%(-2+-3)", "0");
-
-        ////chatGPT generated test
-        local::parse("3+4*2", "11");         // 3 + 4 * 2 = 11
-        local::parse("(7+3)*2", "20");       // (7 + 3) * 2 = 20
-        local::parse("1+2+3+4+5", "15");     // 1 + 2 + 3 + 4 + 5 = 15
-        local::parse("8*4-6/2", "29");       // 8 * 4 - 6 / 2 = 16 (修正)
-        local::parse("(1+2)*(3+4)", "21");   // (1 + 2) * (3 + 4) = 21
-        local::parse("-2*4+3", "-5");        // -2 * 4 + 3 = -5
-        local::parse("-(3+4)*2", "-14");     // -(3 + 4) * 2 = -14
-        local::parse("-2+3*4", "10");        // -2 + 3 * 4 = 10
-        local::parse("-(2+3*4)", "-14");     // -(2 + 3 * 4) = -14
-        local::parse("---2", "-2");          // -(-(-2)) = -2
-        local::parse("--2*3", "6");          // -(-2) * 3 = 6
-        local::parse("(((2+3*3)*4))", "44");   // (((2 + 3) * 4)) = 20
-        local::parse("((2+3)*4+(5-2))", "23"); // ((2 + 3) * 4 + (5 - 2)) = 21
-        local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
-        local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
-
-        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
-        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
-        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
-        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
-        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
-        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
-        local::parse("1<3", "TRUE");
-        local::parse("3<3", "FALSE");
-        local::parse("3<3+1", "TRUE");
-//////        local::parse("(3<3)+1", "TRUE");
-        local::parse("1<=3", "TRUE");
-        local::parse("3<=3", "TRUE");
-        local::parse("3<=4", "TRUE");
-        local::parse("1>3", "FALSE");
-        local::parse("3>3", "FALSE");
-        local::parse("3>4", "FALSE");
-        local::parse("1>=3", "FALSE");
-        local::parse("3>=3", "TRUE");
-        local::parse("3>=4", "FALSE");
-        local::parse("3==4", "FALSE");
-        local::parse("3==3", "TRUE");
-        local::parse("3!=4", "TRUE");
-        local::parse("3<>4", "TRUE");
-        local::parse("9 And(4+1)", "1");
-        local::parse("8 Or (4-1)", "11");
-        local::parse("1 Xor 0", "1");
-        local::parse("3+(1 << 1)", "5");
-        local::parse("2-(2 >> 1)", "1");
-        local::parse("4-2 << 1", "4");
-        local::parse("Not 0", "-1");
-        local::parse("Not (1==1)", "FALSE");
-        local::parse("(1!=1) And (1==1)", "FALSE");
-        local::parse("(2==2) And (1==1)", "TRUE");
-        local::parse("(1!=1) Or (1==1)", "TRUE");
+//        //INT32 TEST
+//        local::parse("1+127+32767+2147483647"   ,"-2147450754");
+//        local::parse("-1-128-32768-2147483648"  ,"2147450751");
+//        local::parse("1+(2+3+(4+5+6)+7)", "28");
+//        local::parse("-1+(-2+-3+(-4+-5+-6)+-7)", "-28");
+//        local::parse("-1+-2"        ,"-3");
+//        local::parse("1+2"          ,"3");
+//        local::parse("-1+-2*-3"     ,"5");
+//        local::parse("1+2*3"        ,"7");
+//        local::parse("-1+-2*-3+-4"  ,"1");
+//        local::parse("1+2*3+4"      ,"11");
+//        local::parse("-1+(-2+-3)"   ,"-6");
+//        local::parse("1+(2+3)"      ,"6");
+//        local::parse("1*-(2*3)"     ,"-6");
+//        local::parse("1*--(2*3)"    ,"6");
+//        local::parse("-1+(-2+-3)"   ,"-6");
+//        local::parse("-1*+(-2+-3)"  ,"5");
+//        local::parse("-10/(-2+-3)", "2");
+//        local::parse("-10%(-2+-3)", "0");
+//
+//        ////chatGPT generated test
+//        local::parse("3+4*2", "11");         // 3 + 4 * 2 = 11
+//        local::parse("(7+3)*2", "20");       // (7 + 3) * 2 = 20
+//        local::parse("1+2+3+4+5", "15");     // 1 + 2 + 3 + 4 + 5 = 15
+//        local::parse("8*4-6/2", "29");       // 8 * 4 - 6 / 2 = 16 (修正)
+//        local::parse("(1+2)*(3+4)", "21");   // (1 + 2) * (3 + 4) = 21
+//        local::parse("-2*4+3", "-5");        // -2 * 4 + 3 = -5
+//        local::parse("-(3+4)*2", "-14");     // -(3 + 4) * 2 = -14
+//        local::parse("-2+3*4", "10");        // -2 + 3 * 4 = 10
+//        local::parse("-(2+3*4)", "-14");     // -(2 + 3 * 4) = -14
+//        local::parse("---2", "-2");          // -(-(-2)) = -2
+//        local::parse("--2*3", "6");          // -(-2) * 3 = 6
+//        local::parse("(((2+3*3)*4))", "44");   // (((2 + 3) * 4)) = 20
+//        local::parse("((2+3)*4+(5-2))", "23"); // ((2 + 3) * 4 + (5 - 2)) = 21
+//        local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
+//        local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
+//
+//        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
+//        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
+//        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
+//        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
+//        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
+//        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
+//        local::parse("1<3", "TRUE");
+//        local::parse("3<3", "FALSE");
+//        local::parse("3<3+1", "TRUE");
+////////        local::parse("(3<3)+1", "TRUE");
+//        local::parse("1<=3", "TRUE");
+//        local::parse("3<=3", "TRUE");
+//        local::parse("3<=4", "TRUE");
+//        local::parse("1>3", "FALSE");
+//        local::parse("3>3", "FALSE");
+//        local::parse("3>4", "FALSE");
+//        local::parse("1>=3", "FALSE");
+//        local::parse("3>=3", "TRUE");
+//        local::parse("3>=4", "FALSE");
+//        local::parse("3==4", "FALSE");
+//        local::parse("3==3", "TRUE");
+//        local::parse("3!=4", "TRUE");
+//        local::parse("3<>4", "TRUE");
+//        local::parse("9 And(4+1)", "1");
+//        local::parse("8 Or (4-1)", "11");
+//        local::parse("1 Xor 0", "1");
+//        local::parse("3+(1 << 1)", "5");
+//        local::parse("2-(2 >> 1)", "1");
+//        local::parse("4-2 << 1", "4");
+//        local::parse("Not 0", "-1");
+//        local::parse("Not (1==1)", "FALSE");
+//        local::parse("(1!=1) And (1==1)", "FALSE");
+//        local::parse("(2==2) And (1==1)", "TRUE");
+//        local::parse("(1!=1) Or (1==1)", "TRUE");
         return;
     }
 #endif
@@ -1042,7 +1072,7 @@ public:
 
 int main()
 {
-    Rp::test();
+    RpSolver::test();
     
     //RawTokenIterator::test();
 }

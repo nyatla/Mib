@@ -7,7 +7,6 @@ namespace MIB {
         DELIM, STR, NUMBER, TEXT, UNKNOWN
     };
 
-
     struct RawToken_t {
         RawTokenType type = RawTokenType::UNKNOWN;
         const char* ptr;
@@ -155,7 +154,6 @@ namespace MIB {
 
             return ParserResult::NG;   //INVALID_TOKEN
         };
-    public:
 #ifdef TEST
     public:
         static void test() {
