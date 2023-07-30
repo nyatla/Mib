@@ -4,6 +4,9 @@
     <Filter Include="rpsolver">
       <UniqueIdentifier>{5e154958-17c8-447d-b3bc-16bb3e809c92}</UniqueIdentifier>
     </Filter>
+    <Filter Include="linebuf">
+      <UniqueIdentifier>{71465443-1a9c-4a71-8b07-a82245aa9ab3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\rpsolver\_resolver_imports.h">
@@ -25,5 +28,17 @@
       <Filter>rpsolver</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\mib_stdlib.h" />
+    <ClInclude Include="..\..\src\linebuf\GapVector.h">
+      <Filter>linebuf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\linebuf\linebuf.h">
+      <Filter>linebuf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\linebuf\linebuf_imports.h">
+      <Filter>linebuf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\linebuf\LineBuffer_.h">
+      <Filter>linebuf</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

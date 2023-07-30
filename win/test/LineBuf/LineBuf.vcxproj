@@ -21,8 +21,8 @@
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
-    <ProjectGuid>{8afeb2ac-121d-40a6-90fc-3f52d9f8b619}</ProjectGuid>
-    <RootNamespace>Library</RootNamespace>
+    <ProjectGuid>{b7ad7a09-2d0b-4441-af2f-1ec70b8eaa51}</ProjectGuid>
+    <RootNamespace>LineBuf</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -40,7 +40,7 @@
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
@@ -102,7 +102,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions);_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
     </ClCompile>
     <Link>
@@ -127,17 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\src\linebuf\GapVector.h" />
-    <ClInclude Include="..\..\src\linebuf\linebuf.h" />
-    <ClInclude Include="..\..\src\linebuf\LineBuffer_.h" />
-    <ClInclude Include="..\..\src\linebuf\linebuf_imports.h" />
-    <ClInclude Include="..\..\src\mib_stdlib.h" />
-    <ClInclude Include="..\..\src\rpsolver\CharReader.h" />
-    <ClInclude Include="..\..\src\rpsolver\RawTokenIterator.h" />
-    <ClInclude Include="..\..\src\rpsolver\rpsolver.h" />
-    <ClInclude Include="..\..\src\rpsolver\RpSolver_.h" />
-    <ClInclude Include="..\..\src\rpsolver\sandbox.h" />
-    <ClInclude Include="..\..\src\rpsolver\_resolver_imports.h" />
+    <ClCompile Include="main.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
