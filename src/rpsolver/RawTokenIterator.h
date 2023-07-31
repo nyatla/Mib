@@ -11,6 +11,49 @@ namespace MIB {
         RawTokenType type = RawTokenType::UNKNOWN;
         const char* ptr;
         int size;
+        /// <summary>
+        /// トークンをint32に変換して返します。
+        /// 値範囲は[INT32MIN,INT32MAX]です。
+        /// </summary>
+        /// <param name="out"></param>
+        /// <param name="sign"></param>
+        /// <returns>パース結果を返します。</returns>
+        ParserResult asInt32(int& out, int sign = 1)const
+        {
+            if (this->type != RawTokenType::NUMBER) {
+                return ParserResult::NG;
+            }
+            int t = 0;
+            int i;
+            if (sign > 0) {
+                for (i = 0;i < this->size;i++) {
+                    int d = this->ptr[i] - '0';
+                    if (0 > d || d > 9) {
+                        return ParserResult::NG_InvalidNumber;
+                    }
+                    if (t > 0 && (INT32_MAX - t - d) / t < 9) {
+                        return ParserResult::NG_NumberRange;
+                    }
+                    t = t * 10 + d;
+                };
+            }
+            else {
+                for (i = 0;i < this->size;i++) {
+                    int d = this->ptr[i] - '0';
+                    if (0 > d || d > 9) {
+                        return ParserResult::NG_InvalidNumber;
+                    }
+                    if (t < 0 && (INT_MIN - t + d) / t < 9) {
+                        return ParserResult::NG_NumberRange;
+                    }
+                    t = t * 10 - d;
+                };
+            }
+            out = t;
+            return i > 0 ? ParserResult::OK : ParserResult::NG;
+        }
+
+
     };
 
 
@@ -41,16 +84,55 @@ namespace MIB {
             return ('a'<c && c<'z')||('A' < c && c < 'Z')|| ('0' < c && c < '9')||( memchr("_",c,1) != NULL);
         }
 
-
+    private:
+        struct RawToken_t last_token = {};
+        bool has_token;
     public:
-        RawTokenIterator(const char* src) :_iter(CharReader(src)){
+        RawTokenIterator(const char* src) :_iter(CharReader(src)),has_token(false){
         }
         /// <summary>
-        /// IteratorからSP区切りのトークンを読みだす
+        /// 次のトークンを読みだす。
         /// </summary>
+        /// <param name="token">次回のpeek/nextまで有効な参照値</param>
         /// <returns></returns>
-        ParserResult next(struct RawToken_t& token) {
-            //auto& b = token.buf;
+        ParserResult next(const struct RawToken_t*& token)
+        {
+            //既に読出し済ならそれを返す。
+            if (!this->has_token) {
+                auto r = this->peek(token);
+                if (r != ParserResult::OK) {
+                    return r;
+                }
+            }
+            this->has_token = false;
+            return ParserResult::OK;
+        }
+        /// <summary>
+        /// 次のトークンをスキップします。
+        /// </summary>
+        /// <param name="token">次回のpeek/nextまで有効な参照値</param>
+        /// <returns></returns>
+        ParserResult skip()
+        {
+            const struct RawToken_t* token;
+            return this->next(token);
+        }
+
+        /// <summary>
+        /// 次のトークンをポインタをすすめずに読みだす。
+        /// </summary>
+        /// <param name="token">次回のpeek/nextまで有効な参照値</param>
+        /// <returns></returns>
+        ParserResult peek(const struct RawToken_t*& token)
+        {
+            //既に読出し済ならそれを返す。
+            if (this->has_token) {
+                token = &this->last_token;
+                return ParserResult::OK;
+            }
+            //新規に読出し
+            this->has_token = false;
+            struct RawToken_t& lasttoken = this->last_token;
             int s = 0;
             auto& iter = this->_iter;
             char c0;
@@ -63,7 +145,7 @@ namespace MIB {
                     continue;
                 }
                 //b[0]に値
-                token.ptr = iter.ptr() - 1;
+                lasttoken.ptr = iter.ptr() - 1;
                 s++;
                 break;
             }
@@ -76,16 +158,18 @@ namespace MIB {
                         (c0 == '>' && c1 == '>' || c1 == '=') ||                // >>,>=
                         (c0 == '!' && c1 == '=')                                // =!,==
                         ) {
-                        token.size = 2;
+                        lasttoken.size = 2;
                     }
                     else {
                         iter.seek(-1);
-                        token.size = 1;
+                        lasttoken.size = 1;
                     }
                 }else{
-                    token.size = 1;
+                    lasttoken.size = 1;
                 }
-                token.type = RawTokenType::DELIM;
+                lasttoken.type = RawTokenType::DELIM;
+                token = &lasttoken;
+                this->has_token = true;
                 return ParserResult::OK;
             }
             if (c0 == '"')
@@ -96,9 +180,11 @@ namespace MIB {
                         break;
                     }
                     if (c1 == '"') {
-                        token.ptr++;
-                        token.size = s;
-                        token.type = RawTokenType::STR;
+                        lasttoken.ptr++;
+                        lasttoken.size = s;
+                        lasttoken.type = RawTokenType::STR;
+                        token = &lasttoken;
+                        this->has_token = true;
                         return ParserResult::OK;
                     }
                 }
@@ -119,8 +205,10 @@ namespace MIB {
                     }
                     break;
                 }
-                token.size = s;
-                token.type = RawTokenType::NUMBER;
+                lasttoken.size = s;
+                lasttoken.type = RawTokenType::NUMBER;
+                token = &lasttoken;
+                this->has_token = true;
                 return ParserResult::OK;//少なくとも1文字は取れてる
             }
             {
@@ -137,18 +225,20 @@ namespace MIB {
                         break;
                     }
                 }
-                token.type = RawTokenType::TEXT;
+                lasttoken.type = RawTokenType::TEXT;
                 //Xor,Mod,And,Or,Notについてはデリミタ
-                if (memchr("MAOXN", *token.ptr,5)!=NULL) {
+                if (memchr("MAOXN", *lasttoken.ptr,5)!=NULL) {
                     static const char* d[] = { "Mod","And","Or","Xor","Not" };
                     for (auto i = 0;i < sizeof(d);i++) {
-                        if (strlen(d[i])==s && memcmp(d[i], token.ptr,s) == 0) {
-                            token.type = RawTokenType::DELIM;
+                        if (strlen(d[i])==s && memcmp(d[i], lasttoken.ptr,s) == 0) {
+                            lasttoken.type = RawTokenType::DELIM;
                             break;
                         }
                     }
                 }
-                token.size = s;
+                lasttoken.size = s;
+                token = &lasttoken;
+                this->has_token = true;
                 return ParserResult::OK;//少なくとも1文字はある
             }
 
@@ -158,9 +248,9 @@ namespace MIB {
     public:
         static void test() {
             RawTokenIterator rti(" 1234 -85  % & hjiofgr0_ -aa < << >> \"ssss\" 123456789541test (10) ");
-            struct RawToken_t token;
+            const struct RawToken_t* token;
             while (rti.next(token) == ParserResult::OK) {
-                printf("%d %.*s\n", token.type, token.size,token.ptr);
+                printf("%d %.*s\n", token->type, token->size,token->ptr);
             }
             return;
         }

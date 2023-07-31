@@ -7,6 +7,11 @@ namespace MIB {
     class ICharReader {
     public:
         virtual ~ICharReader() {};
+        /// <summary>
+        /// 読出しポインタを1進めて1文字読み出します。
+        /// </summary>
+        /// <param name="d"></param>
+        /// <returns></returns>
         virtual bool getc(char& d) =0;
         /// <summary>
         /// ポインタを移動します。

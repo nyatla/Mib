@@ -701,19 +701,16 @@ private:
     /// サイズ付テキストトークンを値トークンに変換するパーサ。
     /// </summary>
     class RawTokenParser {
-    private:
-        const struct RawToken_t& _token;
     public:
-        RawTokenParser(const struct RawToken_t& token) :_token(token) {
+        RawTokenParser(){
         }
         /// <summary>
         /// デリミタとして登録されているトークンをOPとして解釈します。
         /// </summary>
         /// <param name="d"></param>
         /// <returns></returns>
-        ParserResult asOpToken(const OpDef*& d)
+        ParserResult asOpToken(const struct RawToken_t& token,const OpDef*& d)
         {
-            auto& token = this->_token;
             MIB_ASSERT(token.type == RawTokenType::DELIM);
             if (token.size == 1) {
                 switch (*token.ptr) {
@@ -802,42 +799,12 @@ private:
         /// <param name="d"></param>
         /// <param name="sign"></param>
         /// <returns></returns>
-        ParserResult asInt(int& out, int sign = 1)
+        ParserResult asInt(const struct RawToken_t& token,int& out, int sign = 1)
         {
-            auto& token = this->_token;
-            int t = 0;
-            int i;
-            if (sign > 0) {
-                for (i = 0;i < token.size;i++) {
-                    int d = token.ptr[i] - '0';
-                    if (0 > d || d > 9) {
-                        return ParserResult::NG_InvalidNumber;
-                    }
-
-                    if (t > 0 && (INT32_MAX - t - d) / t < 9) {
-                        return ParserResult::NG_NumberRange;
-                    }
-                    t = t * 10 + d;
-                };
-            }
-            else {
-                for (i = 0;i < token.size;i++) {
-                    int d = token.ptr[i] - '0';
-                    if (0 > d || d > 9) {
-                        return ParserResult::NG_InvalidNumber;
-                    }
-                    if (t < 0 && (INT_MIN - t + d) / t < 9) {
-                        return ParserResult::NG_NumberRange;
-                    }
-                    t = t * 10 - d;
-                };
-            }
-            out = t;
-            return i > 0 ? ParserResult::OK : ParserResult::NG;
+            return token.asInt32(out, sign);
         }
-        ParserResult asStr(const MIB_INT8*& out, int& len)const
+        ParserResult asStr(const struct RawToken_t& token,const MIB_INT8*& out, int& len)const
         {
-            auto& token = this->_token;
             out = token.ptr;
             len = token.size;
             return ParserResult::OK;
@@ -849,8 +816,8 @@ private:
 public:
     ParserResult parse(RawTokenIterator& iter, int depth = 0,bool nosolve=false)
     {
-        struct RawToken_t token;
-        RawTokenParser parser(token);
+        const struct RawToken_t* token;
+        RawTokenParser parser;
         int sign = 1;
         bool hassign = false;
         bool is_need_sign = false; //最後に読みだしたのが符号であるか
@@ -876,11 +843,11 @@ public:
                 }
                 return ParserResult::OK;
             }
-            switch (token.type) {
+            switch (token->type) {
             case RawTokenType::DELIM:
             {
                 const OpDef* tmp_delim = NULL;
-                auto r = parser.asOpToken(tmp_delim);
+                auto r = parser.asOpToken(*token,tmp_delim);
                 if (r != ParserResult::OK) {
                     return ParserResult::NG;
                 }
@@ -938,7 +905,7 @@ public:
                 is_need_sign = true;
                 int vi;
                 {
-                    auto r = parser.asInt(vi, sign);
+                    auto r = parser.asInt(*token,vi, sign);
                     sign = 1;//符号の初期化
                     if (r != ParserResult::OK) {
                         return r;
@@ -955,7 +922,7 @@ public:
                 is_need_sign = true;
                 const MIB_INT8* s = NULL;
                 int l = 0;
-                auto r = parser.asStr(s, l);
+                auto r = parser.asStr(*token, s, l);
                 if (r != ParserResult::OK) {
                     return r;
                 }
