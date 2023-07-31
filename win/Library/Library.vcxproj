@@ -130,7 +130,7 @@
     <ClInclude Include="..\..\src\linebuf\GapVector.h" />
     <ClInclude Include="..\..\src\linebuf\linebuf.h" />
     <ClInclude Include="..\..\src\linebuf\LineBuffer_.h" />
-    <ClInclude Include="..\..\src\linebuf\linebuf_imports.h" />
+    <ClInclude Include="..\..\src\linebuf\_linebuf_imports.h" />
     <ClInclude Include="..\..\src\mib_stdlib.h" />
     <ClInclude Include="..\..\src\rpsolver\CharReader.h" />
     <ClInclude Include="..\..\src\rpsolver\RawTokenIterator.h" />

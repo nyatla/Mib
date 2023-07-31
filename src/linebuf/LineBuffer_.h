@@ -11,9 +11,9 @@ namespace MIB {
     public:
         enum class Result {
             OK,
-            ERR,
-            ERR_NO_LINE,
-            ERR_OOM
+            NG,        //分類不能な一般エラー
+            NG_NO_LINE,//行が存在しない
+            NG_OOM     //メモリ不足
         };
     public:
         /// <summary>
@@ -180,7 +180,7 @@ namespace MIB {
                     const char* b = NULL;
                     int s = 0;
 
-                    auto r = g.update(line, text, strlen(text));    //1 9 空に追加 
+                    auto r = g.update(line, text, (int)strlen(text));    //1 9 空に追加 
                     auto f = (ret == r);
                     printf("[%s]update  %d\n", (ret == r) ? "OK" : "NG", r);
                 }
@@ -214,8 +214,8 @@ namespace MIB {
             };
             {
                 LineBuffer<20> inst;
-                local::read(inst, 1, Result::ERR_NO_LINE, NULL, -1);
-                local::remove(inst, 1, Result::ERR_NO_LINE);
+                local::read(inst, 1, Result::NG_NO_LINE, NULL, -1);
+                local::remove(inst, 1, Result::NG_NO_LINE);
             }
             {
                 LineBuffer<20> inst;
@@ -227,16 +227,16 @@ namespace MIB {
                 local::buftest(inst, "1:11,2:22,5:55,");
                 local::update(inst, 3, "33", Result::OK);        //臨界挿入
                 local::buftest(inst, "1:11,2:22,3:33,5:55,");
-                local::update(inst, 6, "A", Result::ERR_OOM);    //OOM
+                local::update(inst, 6, "A", Result::NG_OOM);    //OOM
                 local::remove(inst, 2, Result::OK);                 //未定義削除
                 local::buftest(inst, "1:11,3:33,5:55,");
-                local::remove(inst, 2, Result::ERR_NO_LINE);
+                local::remove(inst, 2, Result::NG_NO_LINE);
                 local::buftest(inst, "1:11,3:33,5:55,");
                 local::update(inst, 3, "3333", Result::OK);        //定義済み更新1
                 local::buftest(inst, "1:11,3:3333,5:55,");
                 local::update(inst, 3, "3", Result::OK);        //定義済み更新2
                 local::buftest(inst, "1:11,3:3,5:55,");
-                local::update(inst, 3, "33333333", Result::ERR_OOM);//定義済み更新3(OOM)
+                local::update(inst, 3, "33333333", Result::NG_OOM);//定義済み更新3(OOM)
                 local::buftest(inst, "1:11,3:3,5:55,");
                 local::remove(inst, 1, Result::OK);
                 local::remove(inst, 3, Result::OK);
@@ -321,10 +321,10 @@ namespace MIB {
             int s;
             const void* t_buf;
             if (!this->_indexOfBlockHeader(line, index, s)) {
-                return Result::ERR_NO_LINE;
+                return Result::NG_NO_LINE;
             }
             if (!this->_buf.ptr(index + 3, s - 3, t_buf)) {
-                return Result::ERR_NO_LINE;
+                return Result::NG_NO_LINE;
             }
             //登録
             this->ct.pushIfNotExist(line, index);
@@ -341,10 +341,10 @@ namespace MIB {
             int index;
             int s;
             if (!this->_indexOfBlockHeader(line, index, s)) {
-                return Result::ERR_NO_LINE;
+                return Result::NG_NO_LINE;
             }
             if (!this->_buf.remove(index, s)) {
-                return Result::ERR_NO_LINE;
+                return Result::NG_NO_LINE;
             }
             this->ct.clear();
             return Result::OK;
@@ -379,7 +379,7 @@ namespace MIB {
                 MIB_UINT8* out;
                 //ブロックヘッダが見つからない場合
                 if (!this->_buf.reserve(idx, size + 3, (void*&)out)) {
-                    return Result::ERR;
+                    return Result::NG_OOM;
                 }
                 ((struct MemBlockHeader*)out)->set(line, (MIB_UINT8)size);
                 memmove(out + 3, buf, size);
@@ -387,23 +387,23 @@ namespace MIB {
             else if (mbh->line() == line) {
                 //既存の行あり
                 if (this->_buf.freeSize() + mbh->size - size < 0) {
-                    return Result::ERR_OOM;
+                    return Result::NG_OOM;
                 }
                 if (!this->_buf.remove(idx, mbh->size + 3)) {
-                    return Result::ERR;
+                    return Result::NG;//It must not fail
                 }
-                MIB_UINT8* out;
+                MIB_UINT8* out=NULL;
                 if (!this->_buf.reserve(idx, size + 3, (void*&)out)) {
-                    return Result::ERR;
+                    return Result::NG;//It must not fail
                 }
                 ((struct MemBlockHeader*)out)->set(line, (MIB_UINT8)size);
                 memmove(out + 3, buf, size);
             }
             else {
-                MIB_UINT8* out;
+                MIB_UINT8* out=NULL;
                 //手前に入れとく
                 if (!this->_buf.reserve(idx, size + 3, (void*&)out)) {
-                    return Result::ERR_OOM;
+                    return Result::NG_OOM;
                 }
                 ((struct MemBlockHeader*)out)->set(line, (MIB_UINT8)size);
                 memmove((out)+3, buf, size);
@@ -414,14 +414,18 @@ namespace MIB {
         }
         /// <summary>
         /// bufidxにある行を読出し、次の行のbufidxを返す。
+        /// textは連続したメモリであることを補償します。
+        /// @bug あれこれ終端検知どうなってるの？bufidxがメモリサイズより大きくなったときに下位がエラーを返すことを当てにしてる？
         /// -1でエラー。
         /// </summary>
         int iter(int bufidx, MIB_UINT16& line, const char*& text, int& size)
         {
             const struct MemBlockHeader* mbh = NULL;
+            //ヘッダの読出し
             if (!this->_buf.ptr(bufidx, 3, (const void*&)mbh)) {
                 return -1;
             }
+            //本体の読み出し
             if (!this->_buf.ptr(bufidx + 3, mbh->size, (const void*&)text)) {
                 return -1;
             }

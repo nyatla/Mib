@@ -34,7 +34,7 @@
     <ClInclude Include="..\..\src\linebuf\linebuf.h">
       <Filter>linebuf</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\linebuf\linebuf_imports.h">
+    <ClInclude Include="..\..\src\linebuf\_linebuf_imports.h">
       <Filter>linebuf</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\linebuf\LineBuffer_.h">
