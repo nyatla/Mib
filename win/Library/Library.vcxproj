@@ -132,8 +132,10 @@
     <ClInclude Include="..\..\src\linebuf\LineBuffer_.h" />
     <ClInclude Include="..\..\src\linebuf\_linebuf_imports.h" />
     <ClInclude Include="..\..\src\mib_stdlib.h" />
-    <ClInclude Include="..\..\src\rpsolver\CharReader.h" />
-    <ClInclude Include="..\..\src\rpsolver\RawTokenIterator.h" />
+    <ClInclude Include="..\..\src\rawtoken\CharReader.h" />
+    <ClInclude Include="..\..\src\rawtoken\rawtoken.h" />
+    <ClInclude Include="..\..\src\rawtoken\RawTokenIterator.h" />
+    <ClInclude Include="..\..\src\rawtoken\_rawtoken_imports.h" />
     <ClInclude Include="..\..\src\rpsolver\rpsolver.h" />
     <ClInclude Include="..\..\src\rpsolver\RpSolver_.h" />
     <ClInclude Include="..\..\src\rpsolver\sandbox.h" />

@@ -1,5 +1,5 @@
 #pragma once
-#include "./_resolver_imports.h"
+#include "./_rawtoken_imports.h"
 namespace MIB {
     /// <summary>
     /// NULL終端メモリブロックを読みだすイテレータ

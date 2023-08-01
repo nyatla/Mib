@@ -7,15 +7,12 @@
     <Filter Include="linebuf">
       <UniqueIdentifier>{71465443-1a9c-4a71-8b07-a82245aa9ab3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="rawtoken">
+      <UniqueIdentifier>{91b5986e-4ec2-4fe7-bf52-ea3dfe3ccafa}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\src\rpsolver\_resolver_imports.h">
-      <Filter>rpsolver</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\rpsolver\CharReader.h">
-      <Filter>rpsolver</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\rpsolver\RawTokenIterator.h">
       <Filter>rpsolver</Filter>
     </ClInclude>
     <ClInclude Include="..\..\src\rpsolver\rpsolver.h">
@@ -39,6 +36,18 @@
     </ClInclude>
     <ClInclude Include="..\..\src\linebuf\LineBuffer_.h">
       <Filter>linebuf</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\rawtoken\_rawtoken_imports.h">
+      <Filter>rawtoken</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\rawtoken\CharReader.h">
+      <Filter>rawtoken</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\rawtoken\rawtoken.h">
+      <Filter>rawtoken</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\rawtoken\RawTokenIterator.h">
+      <Filter>rawtoken</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
