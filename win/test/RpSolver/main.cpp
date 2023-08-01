@@ -12,7 +12,7 @@ int main()
             RawTokenIterator rti(s);
             auto r = rp.parse(rti);
             const char* m = rp.sdump();
-            if (r == ParserResult::OK) {
+            if (r == RpSolver::Result::OK) {
                 printf("%s -> %s(%s)\n", s, m, memcmp(a, m, strlen(a)) == 0 ? "OK" : "NG");
             }
             else {

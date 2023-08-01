@@ -91,7 +91,7 @@ private:
     LineBuffer<128> lines;
     IConsole& _console;
 private:
-    static bool equalKeyword(const char* kwd, const struct RawToken_t* test) {
+    static bool equalKeyword(const char* kwd, const RawTokenIterator::RawToken_t* test) {
         return test->type==RawTokenType::TEXT && strlen(kwd) == test->size && memcmp(test->ptr, kwd, test->size);
     }
 public:
@@ -108,12 +108,12 @@ public:
     {
         /// この関数はCharReaderのバッファが連続するconst charであることを要求します。
         RawTokenIterator rti(statement);
-        const struct RawToken_t* token;
-        ParserResult r;
+        const RawTokenIterator::RawToken_t* token;
+        RawTokenIterator::Result r;
 
         //get 1st token
         r = rti.peek(token);
-        if (r!=ParserResult::OK){
+        if (r!= RawTokenIterator::Result::OK){
             return Result::NG;
         }
         
@@ -123,7 +123,7 @@ public:
             //行番号の確定
             int lno;
             r = token->asInt32(lno);
-            if (r != ParserResult::OK) {
+            if (r != RawTokenIterator::Result::OK) {
                 return Result::NG;
             }
             //行番号範囲の確認
@@ -132,12 +132,12 @@ public:
             }
             //行番号をスキップ
             r = rti.skip();
-            if (r != ParserResult::OK) {
+            if (r != RawTokenIterator::Result::OK) {
                 return Result::NG;
             }
             //次のトークン先頭を得る。
             r = rti.peek(token);
-            if (r != ParserResult::OK) {
+            if (r != RawTokenIterator::Result::OK) {
                 return Result::NG;
             }
             //行番号に続く任意トークンの位置（CharReaderのメモリ依存性がある部分）

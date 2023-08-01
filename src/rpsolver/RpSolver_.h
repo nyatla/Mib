@@ -695,7 +695,33 @@ namespace MIB {
 
 
 
-class RpSolver {
+class RpSolver
+{
+public:
+    enum class Result {
+        OK,
+        NG,
+        NG_EOS,
+//        NG_IO,
+        NG_TokenTooLong,
+        NG_StackOverFlow,
+        NG_SyntaxError,
+        NG_InvalidNumber,
+        NG_NumberRange,
+        NG_UnknownDelimiter,
+        NG_UnknownToken,
+    };
+    static Result covertResult(RawTokenIterator::Result r) {
+        switch (r) {
+        case RawTokenIterator::Result::OK:return Result::OK;
+        case RawTokenIterator::Result::NG_EOS:return Result::NG_EOS;
+        case RawTokenIterator::Result::NG_InvalidNumber:return Result::OK;
+        case RawTokenIterator::Result::NG_InvalidToken:return Result::OK;
+        case RawTokenIterator::Result::NG_NumberRange:return Result::OK;
+        default:return Result::NG;
+        }
+    }
+
 private:
     /// <summary>
     /// サイズ付テキストトークンを値トークンに変換するパーサ。
@@ -709,7 +735,7 @@ private:
         /// </summary>
         /// <param name="d"></param>
         /// <returns></returns>
-        ParserResult asOpToken(const struct RawToken_t& token,const OpDef*& d)
+        Result asOpToken(const RawTokenIterator::RawToken_t& token,const OpDef*& d)
         {
             MIB_ASSERT(token.type == RawTokenType::DELIM);
             if (token.size == 1) {
@@ -724,9 +750,9 @@ private:
                 case '<':d = &OpTableDef_LT;break;
                 case '>':d = &OpTableDef_GT;break;
                 default:
-                    return ParserResult::NG_UnknownDelimiter;
+                    return Result::NG_UnknownDelimiter;
                 }
-                return ParserResult::OK;
+                return Result::OK;
             }
             if (token.size == 2) {
                 switch (*token.ptr) {
@@ -734,14 +760,14 @@ private:
                     switch (*(token.ptr + 1)) {
                     case '=':d = &OpTableDef_NOTEQ;break;
                     default:
-                        return ParserResult::NG_UnknownDelimiter;
+                        return Result::NG_UnknownDelimiter;
                     }
                     break;
                 case '=':
                     switch (*(token.ptr + 1)) {
                     case '=':d = &OpTableDef_EQ;break;
                     default:
-                        return ParserResult::NG_UnknownDelimiter;
+                        return Result::NG_UnknownDelimiter;
                     }
                     break;
                 case '>':
@@ -749,7 +775,7 @@ private:
                     case '=':d = &OpTableDef_GTEQ;break;
                     case '>':d = &OpTableDef_SHR;break;
                     default:
-                        return ParserResult::NG_UnknownDelimiter;
+                        return Result::NG_UnknownDelimiter;
                     }
                     break;
                 case '<':
@@ -758,20 +784,20 @@ private:
                     case '>':d = &OpTableDef_NOTEQ;break;
                     case '<':d = &OpTableDef_SHL;break;
                     default:
-                        return ParserResult::NG_UnknownDelimiter;
+                        return Result::NG_UnknownDelimiter;
                     }
                     break;
                 case 'O':   //Or
                     switch (*(token.ptr + 1)) {
                     case 'r':d = &OpTableDef_OR;break;
                     default:
-                        return ParserResult::NG_UnknownDelimiter;
+                        return Result::NG_UnknownDelimiter;
                     }
                     break;
                 default:
-                    return ParserResult::NG_UnknownDelimiter;
+                    return Result::NG_UnknownDelimiter;
                 }
-                return ParserResult::OK;
+                return Result::OK;
             }
             if (token.size == 3) {
                 if (memcmp(token.ptr, "And", 3) == 0) {
@@ -787,11 +813,11 @@ private:
                     d = &OpTableDef_NOT;
                 }
                 else {
-                    return ParserResult::NG_UnknownDelimiter;
+                    return Result::NG_UnknownDelimiter;
                 }
-                return ParserResult::OK;
+                return Result::OK;
             }
-            return ParserResult::NG_UnknownDelimiter;
+            return Result::NG_UnknownDelimiter;
         }
         /// <summary>
         /// トークンを数値に変換する
@@ -799,24 +825,24 @@ private:
         /// <param name="d"></param>
         /// <param name="sign"></param>
         /// <returns></returns>
-        ParserResult asInt(const struct RawToken_t& token,int& out, int sign = 1)
+        Result asInt(const RawTokenIterator::RawToken_t& token,int& out, int sign = 1)
         {
-            return token.asInt32(out, sign);
+            return covertResult(token.asInt32(out, sign));
         }
-        ParserResult asStr(const struct RawToken_t& token,const MIB_INT8*& out, int& len)const
+        Result asStr(const RawTokenIterator::RawToken_t& token,const MIB_INT8*& out, int& len)const
         {
             out = token.ptr;
             len = token.size;
-            return ParserResult::OK;
+            return Result::OK;
         }
     };
 private:
     OpStack<> ops;
     RpQueue<> vs;
 public:
-    ParserResult parse(RawTokenIterator& iter, int depth = 0,bool nosolve=false)
+    Result parse(RawTokenIterator& iter, int depth = 0,bool nosolve=false)
     {
-        const struct RawToken_t* token;
+        const RawTokenIterator::RawToken_t* token;
         RawTokenParser parser;
         int sign = 1;
         bool hassign = false;
@@ -824,32 +850,32 @@ public:
         this->vs.setPushOnly(nosolve);
         //const OpDef* last_delim = NULL;//符号以外の直前に来たデリミタを記録
         for (;;) {
-            ParserResult pr = iter.next(token);
+            RawTokenIterator::Result pr = iter.next(token);
             //            printf("%s\n",this->vs.sdump(this->vs));
             switch (pr)
             {
-            case ParserResult::OK:break;
-            case ParserResult::NG_EOF:
+            case RawTokenIterator::Result::OK:break;
+            case RawTokenIterator::Result::NG_EOS:
                 //OPの払い出し
                 for (;;) {
                     const OpDef* w;
                     if (!this->ops.peek(w)) {
-                        return ParserResult::OK;
+                        return Result::OK;
                     }
                     this->ops.pop();//常に成功
                     if (!this->vs.pushOp(w)) {
-                        return ParserResult::NG;  //スタック超過
+                        return Result::NG_StackOverFlow;  //スタック超過
                     }
                 }
-                return ParserResult::OK;
+                return Result::OK;
             }
             switch (token->type) {
             case RawTokenType::DELIM:
             {
                 const OpDef* tmp_delim = NULL;
                 auto r = parser.asOpToken(*token,tmp_delim);
-                if (r != ParserResult::OK) {
-                    return ParserResult::NG;
+                if (r != Result::OK) {
+                    return r;
                 }
                 //連続する演算子の統合
                 switch (tmp_delim->delim)
@@ -859,7 +885,7 @@ public:
                 case DelimType::PLUS:
                     if (!hassign && is_need_sign) {
                         if (!this->ops.push(&OpTableDef_PLUS, vs)) {
-                            return ParserResult::NG;
+                            return Result::NG;
                         }
                     }
                     hassign = true;
@@ -874,27 +900,27 @@ public:
                     if (sign < 0) {
                         //-1*を挿入
                         if (!this->vs.pushInt(-1)) {
-                            return ParserResult::NG_StackOverFlow;
+                            return Result::NG_StackOverFlow;
                         }
                         if (!this->ops.push(&OpTableDef_MUL, vs)) {
-                            return ParserResult::NG;
+                            return Result::NG;
                         }
                         sign = 1;//リセット
                     }
                     if (!this->ops.push(tmp_delim, this->vs)) {
-                        return ParserResult::NG;
+                        return Result::NG;
                     }
                     continue;;
                 case DelimType::BRKT_R:
                     if (!this->ops.push(tmp_delim, this->vs)) {
-                        return ParserResult::NG;
+                        return Result::NG;
                     }
                     is_need_sign = true;
                     continue;
                 }
                 {
                     if (!this->ops.push(tmp_delim, vs)) {
-                        return ParserResult::NG;
+                        return Result::NG;
                     }
                 }
                 break;
@@ -907,12 +933,12 @@ public:
                 {
                     auto r = parser.asInt(*token,vi, sign);
                     sign = 1;//符号の初期化
-                    if (r != ParserResult::OK) {
+                    if (r != Result::OK) {
                         return r;
                     }
                 }
                 if (!this->vs.pushInt(vi)) {
-                    return ParserResult::NG_StackOverFlow;
+                    return Result::NG_StackOverFlow;
                 }
                 break;
             }
@@ -923,16 +949,16 @@ public:
                 const MIB_INT8* s = NULL;
                 int l = 0;
                 auto r = parser.asStr(*token, s, l);
-                if (r != ParserResult::OK) {
+                if (r != Result::OK) {
                     return r;
                 }
                 if (!this->vs.pushStr(s, l)) {
-                    return ParserResult::NG_StackOverFlow;
+                    return Result::NG_StackOverFlow;
                 }
                 break;
             }
             default:
-                return ParserResult::NG_UnknownToken;
+                return Result::NG_UnknownToken;
             }
 
         }
@@ -950,7 +976,7 @@ public:
                 RawTokenIterator rti(s);
                 auto r = rp.parse(rti);
                 const char* m = rp.vs.sdump(rp.vs);
-                if (r == ParserResult::OK) {
+                if (r == Result::OK) {
                     printf("%s -> %s(%s)\n", s, m, memcmp(a, m, strlen(a)) == 0 ? "OK" : "NG");
                 }
                 else {

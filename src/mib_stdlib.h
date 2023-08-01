@@ -23,27 +23,14 @@ namespace MIB{
 
 
 
-    enum class ParserResult {
-        OK,
-        NG,
-        NG_EOF,
-        NG_IO,
-        NG_TokenTooLong,
-        NG_StackOverFlow,
-        NG_SyntaxError,
-        NG_InvalidNumber,
-        NG_NumberRange,
-        NG_UnknownDelimiter,
-        NG_UnknownToken,
-    };
 
-    class ErrorMessage {
-    public:
-        const ParserResult eid;
-        const char* message;
-    public:
-        ErrorMessage(ParserResult eid_, const char* message_) :eid(eid_), message(message_) {}
-    };
+    //class ErrorMessage {
+    //public:
+    //    const ParserResult eid;
+    //    const char* message;
+    //public:
+    //    ErrorMessage(ParserResult eid_, const char* message_) :eid(eid_), message(message_) {}
+    //};
 
 
 }
