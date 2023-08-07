@@ -239,7 +239,8 @@ namespace MIB {
                 //Xor,Mod,And,Or,Notについてはデリミタ
                 if (memchr("MAOXN", *lasttoken.ptr,5)!=NULL) {
                     static const char* d[] = { "Mod","And","Or","Xor","Not" };
-                    for (auto i = 0;i < sizeof(d);i++) {
+                    auto d_len = sizeof(d) / sizeof(const char*);
+                    for (auto i = 0;i < d_len;i++) {
                         if (strlen(d[i])==s && memcmp(d[i], lasttoken.ptr,s) == 0) {
                             lasttoken.type = RawTokenType::DELIM;
                             break;

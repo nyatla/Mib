@@ -242,7 +242,7 @@ namespace MIB {
                 return false;
             }
             auto ptr = this->ptr(-1);
-            *(ptr + 0) = 0xff & (len + TYPE_KWD_LEN);
+            *(ptr + 0) = 0xff & (len + TYPE_KWD_MIN);
             memmove(ptr + 1, v, len);
             return true;
         }
@@ -391,6 +391,7 @@ namespace MIB {
         }
         static inline bool _isIntType(MIB_UINT8 t) { return (t == TYPE_INT32 || t == TYPE_INT16 || t == TYPE_INT8); }
         static inline bool _isStrType(MIB_UINT8 t) { return (t == TYPE_LONG_STR || (TYPE_SHORT_STR_MIN <= t && t <= TYPE_SHORT_STR_MAX)); }
+        static inline bool _isKwdType(MIB_UINT8 t) { return (TYPE_KWD_MIN <= t && t <= TYPE_KWD_MAX); }
 
     private:
         /// <summary>
@@ -641,6 +642,13 @@ namespace MIB {
                     auto l = 0;
                     inst.peekStr(i, s, l);
                     str = str + sprintf(str, "\"%.*s\" ", l, s);
+                    continue;
+                }
+                if (_isKwdType(p)) {
+                    const MIB_INT8* s = NULL;
+                    auto l = 0;
+                    inst.peekKeyword(i, s, l);
+                    str = str + sprintf(str, "%.*s ", l, s);
                     continue;
                 }
                 bool b;
@@ -1010,7 +1018,18 @@ public:
             }
             case RawTokenType::TEXT:
             {
-
+                hassign = false;
+                is_need_sign = true;
+                const MIB_INT8* s = NULL;
+                int l = 0;
+                auto r = parser.asStr(*token, s, l);
+                if (r != Result::OK) {
+                    return r;
+                }
+                if (!this->vs.pushKeyword(s, l)) {
+                    return Result::NG_StackOverFlow;
+                }
+                break;
             }
             default:
                 return Result::NG_UnknownToken;
