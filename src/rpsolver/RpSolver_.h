@@ -84,13 +84,12 @@ namespace MIB {
 
 
 
-
     /// <summary>
     /// 逆ポーランド記法の計算キューです。
     /// 演算子:
-    ///     演算順序
-    ///         ( )
-    ///     演算 減算、積算、除算、余剰
+    ///     順序
+    ///         ( )　,
+    ///     減算、積算、除算、余剰
     ///         +               ->  (int, int) (str, int) (int, str) (str, str)
     ///         - * / % Mod     ->  (int, int)
     ///     ビット演算子又は論理演算子
@@ -103,7 +102,11 @@ namespace MIB {
     ///         < > <= >=       ->  (int,int)
     ///         == <> !=        ->  (int,int) (bool, bool)   
     /// 値型:
-    ///     INT32 STRING BOOL
+    ///     INT32 STRING BOOL KEYWORD
+    /// 
+    /// 順序演算子の,は、直前の(、または,までを１つの値として格納する。
+    /// 順序演算子の()は、)の直前にある(からの内部を1つの値とする。
+    /// 順序演算子の、(の直前にある値型がKEYWORDの場合、キーワード関数として扱われる。
     /// </summary>
     /// <typeparam name="QSIZE"></typeparam>
     /// <typeparam name="STACKDEPTH"></typeparam>
@@ -115,6 +118,10 @@ namespace MIB {
         const static unsigned char TYPE_INT8 = 34;
         const static unsigned char TYPE_BOOL_TRUE = 35;
         const static unsigned char TYPE_BOOL_FALSE = 36;
+
+        const static unsigned char TYPE_KWD_LEN = 32-1;//31;
+        const static unsigned char TYPE_KWD_MIN = 64;
+        const static unsigned char TYPE_KWD_MAX = TYPE_KWD_MIN + TYPE_KWD_LEN;
 
         const static unsigned char TYPE_SHORT_STR_LEN = 64 - 2;//64-2;
         const static unsigned char TYPE_SHORT_STR_MIN = 128;
@@ -133,6 +140,15 @@ namespace MIB {
         int _sp = 0;                //スタックポインタ   
         int _ptr = 0;               //書込みポインタ
         bool _push_only = false;    //プロパティ。計算省略フラグ
+    protected:
+        /// <summary>
+        /// キーワード演算の結果を要求する。
+        /// 1番目にKWD,後ろに値
+        /// </summary>
+        virtual int handleKeyword(int sp,int size)
+        {
+            return 0;
+        }
     public:
         /// <summary>
         /// インスタンスをリセットする
@@ -217,6 +233,20 @@ namespace MIB {
                 return this->push(d, 2);
             }
         }
+        bool pushKeyword(const MIB_INT8* v, int len) {
+            if (len > TYPE_KWD_LEN) {
+                return false;
+            }
+
+            if (!this->push(NULL, len + 1)) {
+                return false;
+            }
+            auto ptr = this->ptr(-1);
+            *(ptr + 0) = 0xff & (len + TYPE_KWD_LEN);
+            memmove(ptr + 1, v, len);
+            return true;
+        }
+
         bool pushStr(const MIB_INT8* v, int len) {
             if (len <= TYPE_SHORT_STR_LEN) {
                 if (!this->push(NULL, len + 1)) {
@@ -253,7 +283,7 @@ namespace MIB {
 
 
         /// <summary>
-        /// N番目のスタックが取得可能であり、型が一致するかチェックする
+        /// N番目の要素が取得可能であり、型が一致するかチェックする
         /// </summary>
         /// <param name="idx"></param>
         /// <returns></returns>
@@ -266,7 +296,7 @@ namespace MIB {
         }
 
         /// <summary>
-        /// N番目のスタックのタイプ値を得る。
+        /// N番目の要素のタイプ値を得る。
         /// </summary>
         /// <param name="idx">-1で末尾。</param>
         /// <returns></returns>
@@ -280,7 +310,7 @@ namespace MIB {
             return true;
         }
         /// <summary>
-        /// N番目のスタックからint値を取り出す。
+        /// N番目の要素からint値を取り出す。
         /// </summary>
         /// <param name="idx"></param>
         /// <param name="out"></param>
@@ -315,7 +345,7 @@ namespace MIB {
 
 
         /// <summary>
-        /// 文字列と解釈して、文字数とサイズを返す
+        /// N番目の要素を文字列と解釈して、文字数とサイズを返す
         /// </summary>
         /// <param name="idx"></param>
         /// <param name="ptr"></param>
@@ -339,14 +369,33 @@ namespace MIB {
             }
             return false;
         }
-
+        /// <summary>
+        /// N番目の要素を文字列と解釈して、文字数とサイズを返す
+        /// </summary>
+        /// <param name="idx"></param>
+        /// <param name="ptr"></param>
+        /// <param name="len"></param>
+        /// <returns></returns>
+        bool peekKeyword(int idx, const MIB_INT8*& ptr, int& len)const {
+            auto b = this->constPtr(idx);
+            if (b == NULL) {
+                return false;
+            }
+            //型チェック
+            if (TYPE_KWD_MIN <= b[0] && b[0] <= TYPE_KWD_MAX) {
+                len = b[0] - TYPE_KWD_MIN;
+                ptr = (const MIB_INT8*)b + 1;
+                return true;
+            }
+            return false;
+        }
         static inline bool _isIntType(MIB_UINT8 t) { return (t == TYPE_INT32 || t == TYPE_INT16 || t == TYPE_INT8); }
         static inline bool _isStrType(MIB_UINT8 t) { return (t == TYPE_LONG_STR || (TYPE_SHORT_STR_MIN <= t && t <= TYPE_SHORT_STR_MAX)); }
 
     private:
         /// <summary>
         /// 文字列の加算関数。
-        /// スタックレイアウトは,[+][STR][STR]であること。
+        /// キューの後端は, -1:[+]-2:[STR]-3:[STR]であること。
         /// </summary>
         /// <returns></returns>
         bool _strProc(int t1) {
@@ -457,84 +506,87 @@ namespace MIB {
         }
 
         /// <summary>
-        /// キューの演算を実行する。
+        /// キューの末尾の演算子を実行する。
         /// </summary>
         /// <returns></returns>
         bool execute()
         {
-            for (;;) {
-                auto t1 = 0;
-                if (!this->peekType(-1, t1)) {
-                    return false;
-                }
+            auto t1 = 0;
+            if (!this->peekType(-1, t1)) {
+                return false;
+            }
 
-                union {
-                    int _int;
-                    bool _bool;
-                }d;
-                {   //Int,(Int)
-                    auto a = 0, b = 0;
-                    if (this->peekInt(-2, a)) {
-                        if (this->peekInt(-3, b)) {
-                            //int int OP = int  
-                            if (ii_int(t1, a, b, d._int))
-                            {
-                                this->pop(3);
-                                this->pushInt(d._int);
-                                continue;
-                            }
-                            //int int OP = bool
-                            if (ii_bool(t1, a, b, d._bool))
-                            {
-                                this->pop(3);
-                                this->pushBool(d._bool);
-                                continue;
-                            }
+            union {
+                int _int;
+                bool _bool;
+            }d;
+            {   //Int,(Int)
+                auto a = 0, b = 0;
+                if (this->peekInt(-2, a)) {
+                    if (this->peekInt(-3, b)) {
+                        //int int OP = int  
+                        if (ii_int(t1, a, b, d._int))
+                        {
+                            this->pop(3);
+                            this->pushInt(d._int);
+                            return true;
                         }
-                        if (t1 == (int)DelimType::NOT) {
-                            this->pop(2);
-                            this->pushInt(~a);
-                            continue;
+                        //int int OP = bool
+                        if (ii_bool(t1, a, b, d._bool))
+                        {
+                            this->pop(3);
+                            this->pushBool(d._bool);
+                            return true;
                         }
                     }
+                    if (t1 == (int)DelimType::NOT) {
+                        this->pop(2);
+                        this->pushInt(~a);
+                        return true;
+                    }
                 }
-                {   //Bool,(Bool)
-                    bool a, b;
-                    if (this->peekBool(-2, a)) {
-                        if (this->peekBool(-3, b)) {
-                            //int int OP = bool
-                            if (bb_bool(t1, a, b, d._bool))
-                            {
-                                this->pop(3);
-                                this->pushBool(d._bool);
-                                continue;
-                            }
-                        }
-                        if (t1 == (int)DelimType::NOT) {
-                            this->pop(2);
-                            this->pushBool(!a);
-                            continue;
+            }
+            {   //Bool,(Bool)
+                bool a, b;
+                if (this->peekBool(-2, a)) {
+                    if (this->peekBool(-3, b)) {
+                        //int int OP = bool
+                        if (bb_bool(t1, a, b, d._bool))
+                        {
+                            this->pop(3);
+                            this->pushBool(d._bool);
+                            return true;
                         }
                     }
+                    if (t1 == (int)DelimType::NOT) {
+                        this->pop(2);
+                        this->pushBool(!a);
+                        return true;
+                    }
+                }
 
-                }
-                if (this->_strProc(t1)) {
-                    //strでのplus演算
-                    continue;
-                }
-                //全ての演算に失敗したらfalse
+            }
+            if (this->_strProc(t1)) {
+                //strでのplus演算
                 return true;
             }
+            //全ての演算に失敗したらfalse
+            return false;
         }
     public:
-
+        /// <summary>
+        /// 演算子をキューに追加し、キューの末尾に対して演算を実行する。
+        /// </summary>
+        /// <param name="o"></param>
+        /// <returns></returns>
         bool pushOp(const OpDef* o) {
             MIB_INT8 c = (MIB_UINT8)o->delim;
 
             if (!this->push(&c, 1)) {
                 return false;
             }
-            if (!this->_push_only) {
+            if (!this->_push_only)
+            {
                 this->execute();
             }
             return true;
@@ -844,8 +896,8 @@ public:
         const RawTokenIterator::RawToken_t* token;
         RawTokenParser parser;
         int sign = 1;
-        bool hassign = false;
-        bool is_need_sign = false; //最後に読みだしたのが符号であるか
+        bool hassign = false;       //演算子を持つか
+        bool is_need_sign = false;  //最後に読みだしたのが符号であるか
         this->vs.setPushOnly(nosolve);
         //const OpDef* last_delim = NULL;//符号以外の直前に来たデリミタを記録
         for (;;) {
@@ -955,6 +1007,10 @@ public:
                     return Result::NG_StackOverFlow;
                 }
                 break;
+            }
+            case RawTokenType::TEXT:
+            {
+
             }
             default:
                 return Result::NG_UnknownToken;
