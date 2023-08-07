@@ -394,118 +394,255 @@ namespace MIB {
         static inline bool _isKwdType(MIB_UINT8 t) { return (TYPE_KWD_MIN <= t && t <= TYPE_KWD_MAX); }
 
     private:
-        /// <summary>
-        /// 文字列の加算関数。
-        /// キューの後端は, -1:[+]-2:[STR]-3:[STR]であること。
-        /// </summary>
-        /// <returns></returns>
-        bool _strProc(int t1) {
-            //演算子の確認
-            if (t1 != (int)DelimType::PLUS) {
+        typedef union OpValue {
+            int i;
+            bool b;
+        }OpValue_t;
+        bool popII(int&a,int&b){
+            if (this->peekInt(-1, a) && this->peekInt(-2, b)) {
+                this->pop(2);
+                return true;
+            }
+            return false;
+        }
+        bool popBB(bool& a, bool& b) {
+            if (this->peekBool(-1, a) && this->peekBool(-2, b)) {
+                this->pop(2);
+                return true;
+            }
+            return false;
+        }
+
+        bool do_and() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i & a.i);
+            }
+            else if (this->popBB(a.b, b.b)) {
+                this->pushBool(b.b && a.b);
+            }
+            else {
                 return false;
             }
-            //strがどちらかにあること
-            int t[2] = {};
-            for (int i = 0;i < 2;i++) {
-                if (!this->peekType(-2 - i, t[i])) {
+            return true;
+        }
+        bool do_or() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i | a.i);
+            }
+            else if (this->popBB(a.b, b.b)) {
+                this->pushBool(b.b || a.b);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_eq() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushBool(b.i == a.i);
+            }
+            else if (this->popBB(a.b, b.b)) {
+                this->pushBool(b.i == a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+
+        }
+        bool do_noteq()
+        {
+            OpValue_t a, b;
+            bool v = false;
+            if (this->popII(a.i, b.i)) {
+                this->pushBool(b.i != a.i);
+            }else if(this->popBB(a.b, b.b)) {
+                this->pushBool(b.i != a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_not() {
+            OpValue_t a;
+            if (this->peekInt(-1, a.i)) {
+                this->pop(1);
+                this->pushInt(~a.i);
+            }else if (this->peekBool(-1, a.b)) {
+                this->pop(1);
+                this->pushBool(!a.b);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_lt() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushBool(b.i < a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_lteq() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushBool(b.i <= a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_gt() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushBool(b.i > a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_gteq() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushBool(b.i >= a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_mul() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i * a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_minus() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i - a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+        bool do_plus() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i + a.i);
+            }else{
+                //strがどちらかにあること
+                int t[2] = {};
+                for (int i = 0;i < 2;i++) {
+                    if (!this->peekType(-1 - i, t[i])) {
+                        return false;
+                    }
+                }
+                if (!_isStrType(t[0]) && !_isStrType(t[1])) {
                     return false;
                 }
-            }
-            if (!_isStrType(t[0]) && !_isStrType(t[1])) {
-                return false;
-            }
-            int l[2] = { 0,0 };
-            const MIB_INT8* s[2] = { NULL,NULL };
-            char work[16];
-            for (int i = 0;i < 2;i++) {
-                if (_isStrType(t[i])) {
-                    if (this->peekStr(-2 - i, s[i], l[i])) {
+                int l[2] = { 0,0 };
+                const MIB_INT8* s[2] = { NULL,NULL };
+                char work[16];
+                for (int i = 0;i < 2;i++) {
+                    if (_isStrType(t[i])) {
+                        if (this->peekStr(-1 - i, s[i], l[i])) {
+                            continue;
+                        }
+                    }
+                    //両方がintということはない
+                    if (_isIntType(t[i])) {
+                        int w = 0;
+                        if (!this->peekInt(-1 - i, w)) {
+                            return false;
+                        }
+                        l[i] = countDigits(w);
+                        s[i] = work;
+                        MIB::itoa(w, work, 10);
                         continue;
                     }
                 }
-                //両方がintということはない
-                if (_isIntType(t[i])) {
-                    int w = 0;
-                    if (!this->peekInt(-2 - i, w)) {
-                        return false;
-                    }
-                    l[i] = countDigits(w);
-                    s[i] = work;
-                    MIB::itoa(w, work, 10);
-                    continue;
+                //書込み位置の計算
+                int sl = l[0] + l[1];
+                int hsize = (sl <= TYPE_SHORT_STR_LEN) ? 1 : 3;
+                int d2 = hsize;//d2の書込み位置
+                int d1 = d2 + l[1];
+
+                this->pop(2);
+                //スタックポインタを3個破棄して領域をpush
+                if (!this->push(NULL, hsize + sl)) {
+                    return false;
+                }
+                auto ptr = this->ptr(-1);
+                //領域に文字列を編集
+                memmove(ptr + d1, s[0], l[0]);//t1
+                memmove(ptr + d2, s[1], l[1]);//t2
+                //TYPE値の書込み
+                if (hsize == 1) {
+                    *ptr = TYPE_SHORT_STR_MIN + (MIB_INT8)sl;
+                }
+                else {
+                    *ptr = TYPE_LONG_STR;
+                    ushort2bytes((MIB_UINT16)sl, ptr + 1);
                 }
             }
-            //書込み位置の計算
-            int sl = l[0] + l[1];
-            int hsize = (sl <= TYPE_SHORT_STR_LEN) ? 1 : 3;
-            int d2 = hsize;//d2の書込み位置
-            int d1 = d2 + l[1];
-
-            this->pop(3);
-            //スタックポインタを3個破棄して領域をpush
-            if (!this->push(NULL, hsize + sl)) {
-                return false;
-            }
-            auto ptr = this->ptr(-1);
-            //領域に文字列を編集
-            memmove(ptr + d1, s[0], l[0]);//t1
-            memmove(ptr + d2, s[1], l[1]);//t2
-            //TYPE値の書込み
-            if (hsize == 1) {
-                *ptr = TYPE_SHORT_STR_MIN + (MIB_INT8)sl;
+            return true;
+        }
+        bool do_mod() {
+            OpValue_t a = {}, b = {};
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i % a.i);
             }
             else {
-                *ptr = TYPE_LONG_STR;
-                ushort2bytes((MIB_UINT16)sl, ptr + 1);
-            }
-            return true;
-
-        }
-        bool ii_int(int op, int a, int b, int& d)const
-        {
-            switch (op) {
-            case (int)DelimType::MUL:   d = (b * a);break;
-            case (int)DelimType::MINUS: d = (b - a);break;
-            case (int)DelimType::PLUS:  d = (b + a);break;
-            case (int)DelimType::MOD:   d = (b % a);break;
-            case (int)DelimType::DIV:   d = (b / a);break;
-            case (int)DelimType::AND:   d = (b & a);break;
-            case (int)DelimType::OR:    d = (b | a);break;
-            case (int)DelimType::XOR:   d = (b ^ a);break;
-            case (int)DelimType::SHL:   d = (b << a);break;
-            case (int)DelimType::SHR:   d = (b >> a);break;
-            default:
                 return false;
             }
             return true;
         }
-        bool ii_bool(int op, int a, int b, bool& d)const
-        {
-            switch (op) {
-            case (int)DelimType::LT:    d = (b < a);break;
-            case (int)DelimType::LTEQ:  d = (b <= a);break;
-            case (int)DelimType::GT:    d = (b > a);break;
-            case (int)DelimType::GTEQ:  d = (b >= a);break;
-            case (int)DelimType::EQ:    d = (b == a);break;
-            case (int)DelimType::NOTEQ: d = (b != a);break;
-            default:
+        bool do_div() {
+            OpValue_t a = {}, b = {};
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i / a.i);
+            }
+            else {
                 return false;
             }
             return true;
         }
-        bool bb_bool(int op, bool a, bool b, bool& d)const
-        {
-            switch (op) {
-            case (int)DelimType::AND:   d = (b && a);break;
-            case (int)DelimType::OR:    d = (b || a);break;
-            case (int)DelimType::EQ:    d = (b == a);break;
-            case (int)DelimType::NOTEQ: d = (b != a);break;
-            default:
+        bool do_shl() {
+            OpValue_t a = {}, b = {};
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i << a.i);
+            }
+            else {
                 return false;
             }
             return true;
         }
-
+        bool do_shr() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i >> a.i);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
         /// <summary>
         /// キューの末尾の演算子を実行する。
         /// </summary>
@@ -516,63 +653,34 @@ namespace MIB {
             if (!this->peekType(-1, t1)) {
                 return false;
             }
+            bool oret=false;
+            this->pop(1);
+            switch(t1){
+            case (int)DelimType::AND:   oret=this->do_and();break;
+            case (int)DelimType::OR:    oret=this->do_or();break;
+            case (int)DelimType::EQ:    oret=this->do_eq();break;
+            case (int)DelimType::NOTEQ: oret = this->do_noteq();break;
+            case (int)DelimType::NOT: oret = this->do_not();break;
+            case (int)DelimType::LT:    oret = this->do_lt();break;
+            case (int)DelimType::LTEQ:  oret = this->do_lteq();break;
+            case (int)DelimType::GT:    oret = this->do_gt();break;
+            case (int)DelimType::GTEQ:  oret = this->do_gteq();break;
 
-            union {
-                int _int;
-                bool _bool;
-            }d;
-            {   //Int,(Int)
-                auto a = 0, b = 0;
-                if (this->peekInt(-2, a)) {
-                    if (this->peekInt(-3, b)) {
-                        //int int OP = int  
-                        if (ii_int(t1, a, b, d._int))
-                        {
-                            this->pop(3);
-                            this->pushInt(d._int);
-                            return true;
-                        }
-                        //int int OP = bool
-                        if (ii_bool(t1, a, b, d._bool))
-                        {
-                            this->pop(3);
-                            this->pushBool(d._bool);
-                            return true;
-                        }
-                    }
-                    if (t1 == (int)DelimType::NOT) {
-                        this->pop(2);
-                        this->pushInt(~a);
-                        return true;
-                    }
-                }
+            case (int)DelimType::MUL:    oret = this->do_mul();break;
+            case (int)DelimType::MINUS: oret = this->do_minus();break;
+            case (int)DelimType::PLUS:  oret = this->do_plus();break;
+            case (int)DelimType::MOD:   oret = this->do_mod();break;
+            case (int)DelimType::DIV:   oret = this->do_div();break;
+            case (int)DelimType::SHL:    oret = this->do_shl();break;
+            case (int)DelimType::SHR:    oret = this->do_shr();break;
+            default:break;
             }
-            {   //Bool,(Bool)
-                bool a, b;
-                if (this->peekBool(-2, a)) {
-                    if (this->peekBool(-3, b)) {
-                        //int int OP = bool
-                        if (bb_bool(t1, a, b, d._bool))
-                        {
-                            this->pop(3);
-                            this->pushBool(d._bool);
-                            return true;
-                        }
-                    }
-                    if (t1 == (int)DelimType::NOT) {
-                        this->pop(2);
-                        this->pushBool(!a);
-                        return true;
-                    }
-                }
-
-            }
-            if (this->_strProc(t1)) {
-                //strでのplus演算
-                return true;
-            }
+            //if (this->_strProc(t1)) {
+            //    //strでのplus演算
+            //    return true;
+            //}
             //全ての演算に失敗したらfalse
-            return false;
+            return oret;
         }
     public:
         /// <summary>
