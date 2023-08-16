@@ -1053,6 +1053,7 @@ public:
                 case DelimType::NOT:
                 case DelimType::BRKT_L:
                     //単項演算子、ブラケットLの前にはsignが許可される。
+                    //signはLeftEdgeの場合のみ-1*Nに展開する。
                     if (is_left_edge) {
                         if (sign < 0) {
                             //-1*を挿入
@@ -1106,41 +1107,7 @@ public:
                     }
                     continue;
                 }
-                //hassign = false;
-                //is_need_sign = false;
-                ////TODO signを考慮して
-                ////符号以外のデリミタがきた
-                //switch (tmp_delim->delim) {
-                //case DelimType::BRKT_L:
-                //    if (sign < 0) {
-                //        //-1*を挿入
-                //        if (!this->vs.pushInt(-1)) {
-                //            return Result::NG_StackOverFlow;
-                //        }
-                //        if (!this->ops.push(&OpTableDef_MUL, vs)) {
-                //            return Result::NG;
-                //        }
-                //        sign = 1;//リセット
-                //    }
-                //    if (!this->ops.push(tmp_delim, this->vs)) {
-                //        return Result::NG;
-                //    }
-                //    continue;;
-                //case DelimType::BRKT_R:
-                //    if (!this->ops.push(tmp_delim, this->vs)) {
-                //        return Result::NG;
-                //    }
-                //    is_need_sign = true;
-                //    continue;
-                //}
-                //{
-                //    //signが0でなければならないのでは？
-                //    if (!this->ops.push(tmp_delim, vs)) {
-                //        return Result::NG;
-                //    }
-                //}
             }
-//            auto current_sign_detected = sign_detected;
             auto current_left_edge = is_left_edge;
             is_left_edge = false;
             auto current_sign = sign;
@@ -1152,7 +1119,9 @@ public:
                 if (current_sign !=0) {
                     if (!current_left_edge) {
                         //LeftEdgeでなければ演算子を積む
-                        this->ops.push(&OpTableDef_PLUS, vs);
+                        if (!this->ops.push(&OpTableDef_PLUS, vs)) {
+                            return Result::NG_StackOverFlow;
+                        }
                     }
                 }
                 else {
@@ -1168,21 +1137,32 @@ public:
                 }
                 break;
             }
-            //case RawTokenType::STR:
-            //{
-            //    hassign = false;
-            //    is_need_sign = true;
-            //    const MIB_INT8* s = NULL;
-            //    int l = 0;
-            //    auto r = parser.asStr(*token, s, l);
-            //    if (r != Result::OK) {
-            //        return r;
-            //    }
-            //    if (!this->vs.pushStr(s, l)) {
-            //        return Result::NG_StackOverFlow;
-            //    }
-            //    break;
-            //}
+            case RawTokenType::STR:
+            {
+                if (current_left_edge) {
+                    if (current_sign != 0) {
+                        return Result::NG;//Lエッジの文字列に符号がついていたらおかしい
+                    }
+                }
+                else {
+                    if (current_sign <= 0) {
+                        return Result::NG;//文字列は+符号を持つべき
+                    }
+                    if (!this->ops.push(&OpTableDef_PLUS, vs)) {
+                        return Result::NG_StackOverFlow;
+                    }
+                }
+                const MIB_INT8* s = NULL;
+                int l = 0;
+                auto r = parser.asStr(*token, s, l);
+                if (r != Result::OK) {
+                    return r;
+                }
+                if (!this->vs.pushStr(s, l)) {
+                    return Result::NG_StackOverFlow;
+                }
+                break;
+            }
             //case RawTokenType::TEXT:
             //{
             //    hassign = false;
