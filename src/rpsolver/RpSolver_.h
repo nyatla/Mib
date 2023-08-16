@@ -28,7 +28,7 @@ namespace MIB {
         GT = 15,  //  >
         GTEQ = 16,  //  >=
         EQ = 17,  //  ==
-        NOTEQ = 18   //  != <>
+        NOTEQ = 18,   //  != <>
     };
 
 
@@ -50,14 +50,14 @@ namespace MIB {
     OpDef{ DelimType::SHR,     4 },
     OpDef{ DelimType::AND,     5 },
     OpDef{ DelimType::OR ,     5 },
-    OpDef{ DelimType::NOT ,    5 },
+    OpDef{ DelimType::NOT ,    1 },
     OpDef{ DelimType::XOR ,    5 },
     OpDef{ DelimType::LT,      6 },
     OpDef{ DelimType::LTEQ,    6 },
     OpDef{ DelimType::GT,      6 },
     OpDef{ DelimType::GTEQ,    6 },
     OpDef{ DelimType::EQ,      6 },
-    OpDef{ DelimType::NOTEQ,   6 }
+    OpDef{ DelimType::NOTEQ,   6 },
     };
 
 #define OpTableDef_BRKT_L (OpTableDef[(int)DelimType::BRKT_L])
@@ -1011,11 +1011,9 @@ public:
     {
         const RawTokenIterator::RawToken_t* token;
         RawTokenParser parser;
-        int sign = 1;
-        bool hassign = false;       //演算子を持つか
-        bool is_need_sign = false;  //最後に読みだしたのが符号であるか
+        int sign = 0;   //正、負、標準値
+        bool is_left_edge = true;
         this->vs.setPushOnly(nosolve);
-        //const OpDef* last_delim = NULL;//符号以外の直前に来たデリミタを記録
         for (;;) {
             RawTokenIterator::Result pr = iter.next(token);
             //            printf("%s\n",this->vs.sdump(this->vs));
@@ -1036,111 +1034,173 @@ public:
                 }
                 return Result::OK;
             }
-            switch (token->type) {
-            case RawTokenType::DELIM:
+            if(token->type==RawTokenType::DELIM)
             {
                 const OpDef* tmp_delim = NULL;
-                auto r = parser.asOpToken(*token,tmp_delim);
+                auto r = parser.asOpToken(*token, tmp_delim);
                 if (r != Result::OK) {
                     return r;
                 }
-                //連続する演算子の統合
+                //+と-を一時的に符号として処理
                 switch (tmp_delim->delim)
                 {
                 case DelimType::MINUS:
-                    sign *= -1;
+                    sign = sign==0?-1:-sign;
+                    continue;
                 case DelimType::PLUS:
-                    if (!hassign && is_need_sign) {
-                        if (!this->ops.push(&OpTableDef_PLUS, vs)) {
-                            return Result::NG;
-                        }
-                    }
-                    hassign = true;
+                    sign = sign == 0 ? 1 : sign;
                     continue;
-                }
-                hassign = false;
-                is_need_sign = false;
-                //TODO signを考慮して
-                //符号以外のデリミタがきた
-                switch (tmp_delim->delim) {
+                case DelimType::NOT:
                 case DelimType::BRKT_L:
-                    if (sign < 0) {
-                        //-1*を挿入
-                        if (!this->vs.pushInt(-1)) {
-                            return Result::NG_StackOverFlow;
+                    //単項演算子、ブラケットLの前にはsignが許可される。
+                    if (is_left_edge) {
+                        if (sign < 0) {
+                            //-1*を挿入
+                            if (!this->vs.pushInt(-1)) {
+                                return Result::NG_StackOverFlow;
+                            }
+                            if (!this->ops.push(&OpTableDef_MUL, vs)) {
+                                return Result::NG;
+                            }
                         }
-                        if (!this->ops.push(&OpTableDef_MUL, vs)) {
-                            return Result::NG;
-                        }
-                        sign = 1;//リセット
                     }
+                    else {
+                        if (sign < 0) {
+                            if (!this->ops.push(&OpTableDef_MINUS, vs)) {
+                                return Result::NG;
+                            }
+                        }
+                        else {
+                            if (!this->ops.push(&OpTableDef_PLUS, vs)) {
+                                return Result::NG;
+                            }
+                        }
+                    }
+                    sign = 0;
+                    is_left_edge = true;
+                    //そのまま演算子を積む
                     if (!this->ops.push(tmp_delim, this->vs)) {
                         return Result::NG;
                     }
-                    continue;;
+                    continue;
                 case DelimType::BRKT_R:
+                    //演算子の直前に符号があってはならない。
+                    if (sign != 0) {
+                        return Result::NG;
+                    }
+                    //そのまま演算子を積む
                     if (!this->ops.push(tmp_delim, this->vs)) {
                         return Result::NG;
                     }
-                    is_need_sign = true;
+                    continue;
+
+                default:
+                    //演算子の直前に符号があってはならない。
+                    if (sign != 0) {
+                        return Result::NG;
+                    }
+                    is_left_edge = true;
+                    //そのまま演算子を積む
+                    if (!this->ops.push(tmp_delim, this->vs)) {
+                        return Result::NG;
+                    }
                     continue;
                 }
-                {
-                    if (!this->ops.push(tmp_delim, vs)) {
-                        return Result::NG;
-                    }
-                }
-                break;
+                //hassign = false;
+                //is_need_sign = false;
+                ////TODO signを考慮して
+                ////符号以外のデリミタがきた
+                //switch (tmp_delim->delim) {
+                //case DelimType::BRKT_L:
+                //    if (sign < 0) {
+                //        //-1*を挿入
+                //        if (!this->vs.pushInt(-1)) {
+                //            return Result::NG_StackOverFlow;
+                //        }
+                //        if (!this->ops.push(&OpTableDef_MUL, vs)) {
+                //            return Result::NG;
+                //        }
+                //        sign = 1;//リセット
+                //    }
+                //    if (!this->ops.push(tmp_delim, this->vs)) {
+                //        return Result::NG;
+                //    }
+                //    continue;;
+                //case DelimType::BRKT_R:
+                //    if (!this->ops.push(tmp_delim, this->vs)) {
+                //        return Result::NG;
+                //    }
+                //    is_need_sign = true;
+                //    continue;
+                //}
+                //{
+                //    //signが0でなければならないのでは？
+                //    if (!this->ops.push(tmp_delim, vs)) {
+                //        return Result::NG;
+                //    }
+                //}
             }
+//            auto current_sign_detected = sign_detected;
+            auto current_left_edge = is_left_edge;
+            is_left_edge = false;
+            auto current_sign = sign;
+            sign = 0;
+            switch (token->type) {
             case RawTokenType::NUMBER:
             {
-                hassign = false;
-                is_need_sign = true;
-                int vi;
-                {
-                    auto r = parser.asInt(*token,vi, sign);
-                    sign = 1;//符号の初期化
-                    if (r != Result::OK) {
-                        return r;
+                //符号と演算子のマッチング
+                if (current_sign !=0) {
+                    if (!current_left_edge) {
+                        //LeftEdgeでなければ演算子を積む
+                        this->ops.push(&OpTableDef_PLUS, vs);
                     }
+                }
+                else {
+                    current_sign = 1;
+                }
+                int vi;
+                auto r = parser.asInt(*token, vi, current_sign);
+                if (r != Result::OK) {
+                    return r;
                 }
                 if (!this->vs.pushInt(vi)) {
                     return Result::NG_StackOverFlow;
                 }
                 break;
             }
-            case RawTokenType::STR:
-            {
-                hassign = false;
-                is_need_sign = true;
-                const MIB_INT8* s = NULL;
-                int l = 0;
-                auto r = parser.asStr(*token, s, l);
-                if (r != Result::OK) {
-                    return r;
-                }
-                if (!this->vs.pushStr(s, l)) {
-                    return Result::NG_StackOverFlow;
-                }
-                break;
-            }
-            case RawTokenType::TEXT:
-            {
-                hassign = false;
-                is_need_sign = true;
-                const MIB_INT8* s = NULL;
-                int l = 0;
-                auto r = parser.asStr(*token, s, l);
-                if (r != Result::OK) {
-                    return r;
-                }
-                if (!this->vs.pushKeyword(s, l)) {
-                    return Result::NG_StackOverFlow;
-                }
-                break;
-            }
-            default:
-                return Result::NG_UnknownToken;
+            //case RawTokenType::STR:
+            //{
+            //    hassign = false;
+            //    is_need_sign = true;
+            //    const MIB_INT8* s = NULL;
+            //    int l = 0;
+            //    auto r = parser.asStr(*token, s, l);
+            //    if (r != Result::OK) {
+            //        return r;
+            //    }
+            //    if (!this->vs.pushStr(s, l)) {
+            //        return Result::NG_StackOverFlow;
+            //    }
+            //    break;
+            //}
+            //case RawTokenType::TEXT:
+            //{
+            //    hassign = false;
+            //    is_need_sign = true;
+            //    const MIB_INT8* s = NULL;
+            //    int l = 0;
+            //    auto r = parser.asStr(*token, s, l);
+            //    if (r != Result::OK) {
+            //        return r;
+            //    }
+            //    if (!this->vs.pushKeyword(s, l)) {
+            //        return Result::NG_StackOverFlow;
+            //    }
+            //    break;
+            //}
+            //default:
+            //    return Result::NG_UnknownToken;
+            //}
             }
 
         }
