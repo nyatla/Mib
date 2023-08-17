@@ -29,6 +29,7 @@ namespace MIB {
         GTEQ = 16,  //  >=
         EQ = 17,  //  ==
         NOTEQ = 18,   //  != <>
+        COM=19, //　,    並列演算子
     };
 
 
@@ -58,6 +59,7 @@ namespace MIB {
     OpDef{ DelimType::GTEQ,    6 },
     OpDef{ DelimType::EQ,      6 },
     OpDef{ DelimType::NOTEQ,   6 },
+    OpDef{ DelimType::COM,  31},
     };
 
 #define OpTableDef_BRKT_L (OpTableDef[(int)DelimType::BRKT_L])
@@ -79,6 +81,7 @@ namespace MIB {
 #define OpTableDef_GTEQ (OpTableDef[(int)DelimType::GTEQ])
 #define OpTableDef_EQ (OpTableDef[(int)DelimType::EQ])
 #define OpTableDef_NOTEQ (OpTableDef[(int)DelimType::NOTEQ])
+#define OpTableDef_COM (OpTableDef[(int)DelimType::COM])
 
 
 
@@ -159,17 +162,19 @@ namespace MIB {
             this->_push_only = false;
         }
     private:
-        bool _getStackIndex(int idx, int& s)const {
-            if (idx >= 0 && idx < this->_sp) {
-                s = idx;
+        bool _getStackIndex(int idx, int& s)const
+        {
+            if (idx >= 0){
+                if (idx < this->_sp) {
+                    s = idx;
+                    return true;
+                }
             }
             else if (this->_sp + idx >= 0) {
                 s = this->_sp + idx;
+                return true;
             }
-            else {
-                return false;
-            }
-            return true;
+            return false;
         }
         /// <summary>
         /// n番目の要素のキューメモリ上のポインタを返します。
@@ -439,6 +444,19 @@ namespace MIB {
             }
             return true;
         }
+        bool do_xor() {
+            OpValue_t a, b;
+            if (this->popII(a.i, b.i)) {
+                this->pushInt(b.i ^ a.i);
+            }
+            else if (this->popBB(a.b, b.b)) {
+                this->pushBool(b.b != a.b);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
         bool do_eq() {
             OpValue_t a, b;
             if (this->popII(a.i, b.i)) {
@@ -657,7 +675,8 @@ namespace MIB {
             this->pop(1);
             switch(t1){
             case (int)DelimType::AND:   oret=this->do_and();break;
-            case (int)DelimType::OR:    oret=this->do_or();break;
+            case (int)DelimType::OR:    oret = this->do_or();break;
+            case (int)DelimType::XOR:    oret = this->do_xor();break;
             case (int)DelimType::EQ:    oret=this->do_eq();break;
             case (int)DelimType::NOTEQ: oret = this->do_noteq();break;
             case (int)DelimType::NOT: oret = this->do_not();break;
@@ -673,6 +692,8 @@ namespace MIB {
             case (int)DelimType::DIV:   oret = this->do_div();break;
             case (int)DelimType::SHL:    oret = this->do_shl();break;
             case (int)DelimType::SHR:    oret = this->do_shr();break;
+            //COMはそのまま
+            case (int)DelimType::COM:    oret = true;break;
             default:break;
             }
             //if (this->_strProc(t1)) {
@@ -738,6 +759,7 @@ namespace MIB {
                 case (int)DelimType::GTEQ:str = str + sprintf(str, ">= ");continue;
                 case (int)DelimType::EQ:str = str + sprintf(str, "== ");continue;
                 case (int)DelimType::NOTEQ:str = str + sprintf(str, "!= ");continue;
+                case (int)DelimType::COM:str = str + sprintf(str, ", ");continue;
                 }
                 if (_isIntType(p)) {
                     int v = 0;
@@ -801,15 +823,42 @@ namespace MIB {
             if (this->_ptr >= SIZE) {
                 return false;
             }
-            const OpDef* w;
-            if (this->peek(w)) {
-                switch (s->delim) {
-                case DelimType::BRKT_R:
-                    //ここでDelimType::BRKT_Lの存在チェックしないとエラー時にキューが変更されるけどとりあえず無視
-                    //払い出しのみ
+            //const OpDef* w;
+            //if (this->peek(w)) {
+            switch (s->delim) {
+            case DelimType::COM:
+            {
+                //払い出しのみ
+                const OpDef* w;
+                for (;;) {
+                    if (!this->peek(w)) {
+                        break;  //opが取れない。
+                    }
+                    switch (w->delim) {
+                    case DelimType::BRKT_L:
+                        break;//左端到達
+                    case DelimType::COM:
+                        break;//COMを積む
+                    default:
+                        if (!q.pushOp(w)) {
+                            return false;  //スタック超過
+                        }
+                        this->pop();
+                        continue;
+                    }
+                    break;
+                }
+                break;
+            }
+            case DelimType::BRKT_R:
+            {
+                //払い出しのみ
+                const OpDef* w;
+                if (this->peek(w)) {
                     for (;;) {
                         this->pop();
                         if (w->delim == DelimType::BRKT_L) {
+                            //Lを検出した場合,スタックに残っているのは?
                             break;
                         }
                         if (!q.pushOp(w)) {
@@ -819,20 +868,25 @@ namespace MIB {
                             return false;  //括弧の対応がおかしい
                         }
                     }
-                    return true;
-                case DelimType::BRKT_L:
-                    //積むだけ
-                    break;
-                default:
-                    //でかけりゃ払い出し
+                }
+                return true;
+            }
+            case DelimType::BRKT_L:
+                //積むだけ
+                break;
+            default:
+                //新しい演算子より優先度の高い演算子を払い出し
+                const OpDef* w;
+                if (this->peek(w)) {
                     if (w->prio <= s->prio) {
                         //払い出し
                         q.pushOp(w);
                         this->pop();
                     }
-                    break;
                 }
+                break;
             }
+            //}
             //積む
             this->_buf[this->_ptr++] = (MIB_UINT8)s->delim;
             return true;
@@ -844,6 +898,28 @@ namespace MIB {
             this->_ptr--;
             return true;
         };
+
+        bool peek(int idx,const OpDef*& d)
+        {
+            auto s;
+            if (idx >= 0) {
+                if (idx < this->_ptr) {
+                    s = idx;
+                }
+                else {
+                    return false;
+                }
+            }
+            else if (this->_ptr + idx >= 0) {
+                s = this->_ptr + idx;
+            }
+            else {
+                return false;
+            }
+            d = &OpTableDef[this->_buf[s]];
+            return true;
+        };
+
         bool peek(const OpDef*& d) {
             if (this->_ptr == 0) {
                 return false;
@@ -916,6 +992,7 @@ private:
                 case '-':d = &OpTableDef_MINUS;break;
                 case '<':d = &OpTableDef_LT;break;
                 case '>':d = &OpTableDef_GT;break;
+                case ',':d = &OpTableDef_COM;break;
                 default:
                     return Result::NG_UnknownDelimiter;
                 }
@@ -1066,15 +1143,9 @@ public:
                         }
                     }
                     else {
-                        if (sign < 0) {
-                            if (!this->ops.push(&OpTableDef_MINUS, vs)) {
-                                return Result::NG;
-                            }
-                        }
-                        else {
-                            if (!this->ops.push(&OpTableDef_PLUS, vs)) {
-                                return Result::NG;
-                            }
+                        const OpDef* op = sign < 0 ? &OpTableDef_MINUS : &OpTableDef_PLUS;
+                        if (!this->ops.push(op, vs)) {
+                            return Result::NG;
                         }
                     }
                     sign = 0;
@@ -1096,7 +1167,7 @@ public:
                     continue;
 
                 default:
-                    //演算子の直前に符号があってはならない。
+                    //その他は演算子の直前に符号があってはならない。
                     if (sign != 0) {
                         return Result::NG;
                     }
@@ -1163,24 +1234,45 @@ public:
                 }
                 break;
             }
-            //case RawTokenType::TEXT:
-            //{
-            //    hassign = false;
-            //    is_need_sign = true;
-            //    const MIB_INT8* s = NULL;
-            //    int l = 0;
-            //    auto r = parser.asStr(*token, s, l);
-            //    if (r != Result::OK) {
-            //        return r;
-            //    }
-            //    if (!this->vs.pushKeyword(s, l)) {
-            //        return Result::NG_StackOverFlow;
-            //    }
-            //    break;
-            //}
-            //default:
-            //    return Result::NG_UnknownToken;
-            //}
+            case RawTokenType::TEXT:
+            {
+                if (current_left_edge) {
+                    if (current_sign<0) {
+                        //-1*を挿入
+                        if (!this->vs.pushInt(-1)) {
+                            return Result::NG_StackOverFlow;
+                        }
+                        if (!this->ops.push(&OpTableDef_MUL, vs)) {
+                            return Result::NG;
+                        }
+                    }
+                }
+                else {
+                    if (current_sign < 0) {
+                        if (!this->ops.push(&OpTableDef_MINUS, vs)) {
+                            return Result::NG;
+                        }
+                    }
+                    else {
+                        if (!this->ops.push(&OpTableDef_PLUS, vs)) {
+                            return Result::NG;
+                        }
+                    }
+                }
+                const MIB_INT8* s = NULL;
+                int l = 0;
+                auto r = parser.asStr(*token, s, l);
+                if (r != Result::OK) {
+                    return r;
+                }
+                if (!this->vs.pushKeyword(s, l)) {
+                    return Result::NG_StackOverFlow;
+                }
+                break;
+
+            }
+            default:
+                return Result::NG_UnknownToken;
             }
 
         }
