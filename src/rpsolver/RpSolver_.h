@@ -696,7 +696,7 @@ namespace MIB {
             }
             if (!this->_push_only)
             {
-                this->execute();
+                return this->execute();
             }
             return true;
         }
