@@ -39,9 +39,12 @@ namespace MIB {
         MIB_UINT8 prio;
     }OpDef;
 
+    /// <summary>
+    /// 優先度テーブル。値が小さいほうが優先度が高い。
+    /// </summary>
     const static OpDef OpTableDef[] = {
-    OpDef{ DelimType::BRKT_L,  31},
-    OpDef{ DelimType::BRKT_R,  31},
+    OpDef{ DelimType::BRKT_L,  0},
+    OpDef{ DelimType::BRKT_R,  0},  //マーカー
     OpDef{ DelimType::MUL,     2 },
     OpDef{ DelimType::DIV,     2 },
     OpDef{ DelimType::MOD,     2 },
@@ -59,7 +62,7 @@ namespace MIB {
     OpDef{ DelimType::GTEQ,    6 },
     OpDef{ DelimType::EQ,      6 },
     OpDef{ DelimType::NOTEQ,   6 },
-    OpDef{ DelimType::COM,  31},
+    OpDef{ DelimType::COM,  1},
     };
 
 #define OpTableDef_BRKT_L (OpTableDef[(int)DelimType::BRKT_L])
@@ -115,7 +118,11 @@ namespace MIB {
     /// <typeparam name="STACKDEPTH"></typeparam>
     template <int QSIZE = 256, int STACKDEPTH = 16> class RpQueue {
 
-    private:
+    private:    
+        /// <summary>
+        /// TYPE_XはUINT8型でスタックに積まれた変数の値を示します。
+        /// </summary>
+        const static unsigned char TYPE_OP_MAX = 31;
         const static unsigned char TYPE_INT32 = 32;
         const static unsigned char TYPE_INT16 = 33;
         const static unsigned char TYPE_INT8 = 34;
@@ -124,22 +131,26 @@ namespace MIB {
 
         const static unsigned char TYPE_KWD_LEN = 32-1;//31;
         const static unsigned char TYPE_KWD_MIN = 64;
-        const static unsigned char TYPE_KWD_MAX = TYPE_KWD_MIN + TYPE_KWD_LEN;
+        const static unsigned char TYPE_KWD_MAX = TYPE_KWD_MIN + TYPE_KWD_LEN;  //95
 
         const static unsigned char TYPE_SHORT_STR_LEN = 64 - 2;//64-2;
         const static unsigned char TYPE_SHORT_STR_MIN = 128;
         const static unsigned char TYPE_SHORT_STR_MAX = TYPE_SHORT_STR_MIN + TYPE_SHORT_STR_LEN;
-        const static unsigned char TYPE_LONG_STR = TYPE_SHORT_STR_MAX + 1;
+        const static unsigned char TYPE_LONG_STR = TYPE_SHORT_STR_MAX + 1;  //191
+    private:
         //[S][D...] SにサイズとTYPE,Dにデータを格納する。
-        //S=0-31    OPType                  1バイトの演算子定数
-        //S=32-34   int(4),int(2),int(1)    1+(1-4)バイトの整数
-        //S=64-95   keyword 0-31
-        //S=128-190 tiny string (0-62)      最大で62文字の文字列
-        //S=191     short string            最大で65535文字の文字列。2バイトのサイズ情報付き
-        //S=192-254 short bytes
-        //S=255     long binaly
-        MIB_UINT8 _buf[QSIZE] = {};
-        MIB_UINT8 _stack[STACKDEPTH] = {};//格納位置
+        //S=0-31        OPType                  [OP+V:1]  1バイトの演算子定数
+        //S=32,33,34    int(4),int(2),int(1)    [OP:1][V:*] 1+(1,2,4)バイトの整数
+        //S=35,36       bool(1)                 [OP+V:1] 1バイトの真偽値
+        //S=64-95       keyword (0-31)          [OP+S:1][V:*] 最大31文字のキーワード文字列
+        //S=128-190     short string (0-62)     [OP+S:1][V:*] 最大で62文字の文字列
+        //S=191         long string             [OP:1][S:2][V:*] 最大で65535文字の文字列。2バイトのサイズ情報付き
+        //!PENDING S=192-254     short bytes (0-62)      [OP+S:1][V] 最大で62バイトのバイナリ
+        //!PENDING S=255         long binaly             [OP:1][S:2][V:*]最大で65535バイトのバイナリ
+        MIB_UINT8 _buf[QSIZE] = {};         //値を格納するメモリ
+        //bufに格納したデータブロックの先頭位置を示すインデクス値
+        //
+        MIB_UINT16 _stack[STACKDEPTH] = {};  //格納位置
         int _sp = 0;                //スタックポインタ   
         int _ptr = 0;               //書込みポインタ
         bool _push_only = false;    //プロパティ。計算省略フラグ
@@ -176,6 +187,48 @@ namespace MIB {
             }
             return false;
         }
+        /// <summary>
+        /// N番目のスタック要素のbuf上のサイズを返します。
+        /// </summary>
+        /// <returns></returns>
+        bool _getBlockSize(int idx, int& s)const
+        {
+            int p;
+            if (!this->_getStackIndex(idx, p)) {
+                return false;
+            }
+            auto b = this->constPtr(idx);
+            if (b == NULL) {
+                return false;
+            }
+            auto tval = b[0];//型変数
+            if (tval <= TYPE_OP_MAX || tval== TYPE_BOOL_TRUE || tval== TYPE_BOOL_FALSE) {
+                s=1;
+            }
+            else if (tval== TYPE_INT32) {
+                s = 5;
+            }
+            else if (tval == TYPE_INT16) {
+                s = 3;
+            }
+            else if (tval == TYPE_INT8) {
+                s = 2;
+            }
+            else if ((TYPE_KWD_MIN<=tval && tval<=TYPE_KWD_MAX)){
+                s = 1 + tval - TYPE_KWD_MIN;
+            }
+            else if ((TYPE_SHORT_STR_MIN <= tval && tval <= TYPE_SHORT_STR_MAX)) {
+                s = 1 + tval - TYPE_SHORT_STR_MIN;
+            }
+            else if (tval == TYPE_LONG_STR) {
+                s = 1 + 2 + bytes2ushort(&b[1]);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+
         /// <summary>
         /// n番目の要素のキューメモリ上のポインタを返します。
         /// </summary>
@@ -277,21 +330,62 @@ namespace MIB {
             MIB_INT8 d = v ? TYPE_BOOL_TRUE : TYPE_BOOL_FALSE;
             return this->push(&d, 1);
         }
+        /// <summary>
+        /// n個の値をpopする。
+        /// </summary>
+        /// <param name="n"></param>
+        /// <returns></returns>
         bool pop(int n)
         {
-            if (n > this->_sp) {
+            for (auto i = 0;i < n;i++) {
+                if (this->_sp < 1) {
+                    return false;
+                }
+                int bs = 0;
+                if (!this->_getBlockSize(-1,bs)) {
+                    return false;
+                }
+                this->_sp--;
+                this->_ptr -= bs;
+            }
+            return true;
+        }
+        ///// <summary>
+        ///// キューからn番目の要素を取り外す。
+        ///// </summary>
+        ///// <param name="n"></param>
+        ///// <returns></returns>
+        bool remove(int idx) {
+            int p;
+            if (!this->_getStackIndex(idx, p)) {
                 return false;
             }
-            this->_sp -= n;
+            //末尾ならpopで終える。
+            if (p == this->_sp - 1) {
+                return this->pop(-1);
+            }
+            //中途なら左詰め
+            int bs=0;
+            if (!this->_getBlockSize(p, bs)) {   //ブロックのサイズ
+                return false;
+            }
+            auto bp = this->_stack[p];             //bufのポインタ
+            memmove(&this->_buf[bp], &this->_buf[bp + bs], this->_ptr - bs);//移動
+            //スタックの移動
+            for (auto i = p + 1;i < this->_sp;i++) {
+                this->_stack[i - 1] = this->_stack[i]-bs;
+            }
+            this->_sp--;
             return true;
+
         }
 
 
-        /// <summary>
-        /// N番目の要素が取得可能であり、型が一致するかチェックする
-        /// </summary>
-        /// <param name="idx"></param>
-        /// <returns></returns>
+        ///// <summary>
+        ///// N番目の要素が取得可能であり、型が一致するかチェックする
+        ///// </summary>
+        ///// <param name="idx"></param>
+        ///// <returns></returns>
         bool isTypeEqual(int idx, int c)const {
             int w;
             if (!this->peekType(idx, w)) {
@@ -335,7 +429,6 @@ namespace MIB {
             default:
                 return false;
             }
-            ;
             return true;
         }
         bool peekBool(int idx, bool& out)const
@@ -661,6 +754,28 @@ namespace MIB {
             }
             return true;
         }
+        bool do_brk_r() {
+            //直前の(を検出する。
+            for (auto i = 1;;i++) {
+                auto t = 0;
+                if (!this->peekType(-i, t)) {
+                    return false;
+                }
+                if (t != (int)DelimType::BRKT_L) {
+                    continue;
+                }
+                //発見 1要素ブラケット
+                if (i == 2) {
+                    this->remove(-2);
+                    return true;
+                }
+                //直前がKWDの場合→関数
+                //それ以外の場合→ブラケットの包んでいる値は１個だけ。かつブラケットの取り外し
+
+
+                //中身が
+            }
+        }
         /// <summary>
         /// キューの末尾の演算子を実行する。
         /// </summary>
@@ -694,6 +809,8 @@ namespace MIB {
             case (int)DelimType::SHR:    oret = this->do_shr();break;
             //COMはそのまま
             case (int)DelimType::COM:    oret = true;break;
+            case (int)DelimType::BRKT_L: oret = true;break;
+            case (int)DelimType::BRKT_R:    oret = this->do_brk_r();break;
             default:break;
             }
             //if (this->_strProc(t1)) {
@@ -706,20 +823,30 @@ namespace MIB {
     public:
         /// <summary>
         /// 演算子をキューに追加し、キューの末尾に対して演算を実行する。
+        /// 構造識別子の場合はそのままキューに積む
         /// </summary>
         /// <param name="o"></param>
         /// <returns></returns>
-        bool pushOp(const OpDef* o) {
+        bool pushOp(const OpDef* o)
+        {
             MIB_INT8 c = (MIB_UINT8)o->delim;
-
             if (!this->push(&c, 1)) {
                 return false;
+            }
+            switch (o->delim) {
+//            case DelimType::BRKT_R:
+            case DelimType::BRKT_L:
+                return true;
             }
             if (!this->_push_only)
             {
                 return this->execute();
             }
             return true;
+        }
+        bool pushBraket() {
+            MIB_INT8 c = (MIB_UINT8)DelimType::BRKT_L;
+            return this->push(&c,1);
         }
         /// <summary>
         /// trueをセットすると演算を行わない。
@@ -813,6 +940,7 @@ namespace MIB {
     public:
         /// <summary>
         /// 演算子をスタックに積む。優先順位が低い場合はqに払いだす。
+        /// 構造演算子はOPスタックとキュー両方に追記する。
         /// </summary>
         /// <param name="v"></param>
         /// <param name="q"></param>
@@ -823,8 +951,6 @@ namespace MIB {
             if (this->_ptr >= SIZE) {
                 return false;
             }
-            //const OpDef* w;
-            //if (this->peek(w)) {
             switch (s->delim) {
             case DelimType::COM:
             {
@@ -851,42 +977,47 @@ namespace MIB {
                 break;
             }
             case DelimType::BRKT_R:
-            {
-                //払い出しのみ
+                //Lブラケットにあたるまで払い出し
                 const OpDef* w;
-                if (this->peek(w)) {
-                    for (;;) {
+                while(this->peek(w)) {
+                    //直前がLならば取り外しのみ
+                    if (w->delim == DelimType::BRKT_L) {
                         this->pop();
-                        if (w->delim == DelimType::BRKT_L) {
-                            //Lを検出した場合,スタックに残っているのは?
-                            break;
-                        }
-                        if (!q.pushOp(w)) {
-                            return false;  //スタック超過
-                        }
-                        if (!this->peek(w)) {
-                            return false;  //括弧の対応がおかしい
-                        }
+                        break;
                     }
+                    else {                        
+                        MIB_ASSERT(w->prio != 0);
+                        q.pushOp(w);
+                    }
+                    this->pop();
                 }
-                return true;
-            }
+                q.pushOp(&OpTableDef_BRKT_R);
+                return true;//積まない
             case DelimType::BRKT_L:
-                //積むだけ
-                break;
+                q.pushOp(&OpTableDef_BRKT_L);
+                break;//Lを構造デリミタとして積む
             default:
+            {
                 //新しい演算子より優先度の高い演算子を払い出し
                 const OpDef* w;
                 if (this->peek(w)) {
-                    if (w->prio <= s->prio) {
-                        //払い出し
-                        q.pushOp(w);
-                        this->pop();
+                    //直前がLブラケットならそのまま積む
+                    if (w->delim == DelimType::BRKT_L) {
+                        //pass
+                    }
+                    else {
+                        //優先順位が低ければ払い出し
+                        MIB_ASSERT(w->prio != 0);
+                        if (w->prio <= s->prio) {
+                            //払い出し
+                            q.pushOp(w);
+                            this->pop();
+                        }
                     }
                 }
                 break;
             }
-            //}
+            }
             //積む
             this->_buf[this->_ptr++] = (MIB_UINT8)s->delim;
             return true;
@@ -920,6 +1051,11 @@ namespace MIB {
             return true;
         };
 
+        /// <summary>
+        /// dは定数への参照値です。popしても内容は保証されます。
+        /// </summary>
+        /// <param name="d"></param>
+        /// <returns></returns>
         bool peek(const OpDef*& d) {
             if (this->_ptr == 0) {
                 return false;
@@ -1128,6 +1264,37 @@ public:
                     sign = sign == 0 ? 1 : sign;
                     continue;
                 case DelimType::NOT:
+                {
+                    //単項演算子の場合、signは許可される。
+                    //signはLeftEdgeの場合のみ-1*Nに展開する。
+                    if (is_left_edge) {
+                        if (sign < 0) {
+                            //-1*を挿入
+                            if (!this->vs.pushInt(-1)) {
+                                return Result::NG_StackOverFlow;
+                            }
+                            if (!this->ops.push(&OpTableDef_MUL, vs)) {
+                                return Result::NG;
+                            }
+                        }
+                    }
+                    else {
+                        if (sign != 0) {
+                            const OpDef* op = sign < 0 ? &OpTableDef_MINUS : &OpTableDef_PLUS;
+                            if (!this->ops.push(op, vs)) {
+                                return Result::NG;
+                            }
+                        }
+                    }
+                    sign = 0;
+                    is_left_edge = true;
+                    //そのまま演算子を積む
+                    if (!this->ops.push(tmp_delim, this->vs)) {
+                        return Result::NG;
+                    }
+                    continue;
+                }
+
                 case DelimType::BRKT_L:
                     //単項演算子、ブラケットLの前にはsignが許可される。
                     //signはLeftEdgeの場合のみ-1*Nに展開する。
@@ -1143,9 +1310,11 @@ public:
                         }
                     }
                     else {
-                        const OpDef* op = sign < 0 ? &OpTableDef_MINUS : &OpTableDef_PLUS;
-                        if (!this->ops.push(op, vs)) {
-                            return Result::NG;
+                        if (sign != 0) {
+                            const OpDef* op = sign < 0 ? &OpTableDef_MINUS : &OpTableDef_PLUS;
+                            if (!this->ops.push(op, vs)) {
+                                return Result::NG;
+                            }
                         }
                     }
                     sign = 0;
