@@ -764,11 +764,15 @@ namespace MIB {
                 if (t != (int)DelimType::BRKT_L) {
                     continue;
                 }
-                //発見 1要素ブラケット
-                if (i == 2) {
-                    this->remove(-2);
-                    return true;
-                }
+                //発見->ブラケットを取り去る
+                this->remove(-i);
+                return true;
+                //if (i == 2) {
+                //    this->remove(-i);
+                //    return true;
+                //}
+
+
                 //直前がKWDの場合→関数
                 //それ以外の場合→ブラケットの包んでいる値は１個だけ。かつブラケットの取り外し
 
@@ -834,8 +838,8 @@ namespace MIB {
                 return false;
             }
             switch (o->delim) {
-//            case DelimType::BRKT_R:
             case DelimType::BRKT_L:
+            case DelimType::COM:
                 return true;
             }
             if (!this->_push_only)
@@ -954,17 +958,16 @@ namespace MIB {
             switch (s->delim) {
             case DelimType::COM:
             {
+                //左端/左端識別子に当たるまで演算子を払い出す。
                 //払い出しのみ
                 const OpDef* w;
-                for (;;) {
-                    if (!this->peek(w)) {
-                        break;  //opが取れない。
-                    }
+                while(this->peek(w)){
                     switch (w->delim) {
                     case DelimType::BRKT_L:
-                        break;//左端到達
                     case DelimType::COM:
-                        break;//COMを積む
+                        break;//左端到達
+                    //case DelimType::COM:
+                    //    break;//COMを積む
                     default:
                         if (!q.pushOp(w)) {
                             return false;  //スタック超過
@@ -974,7 +977,7 @@ namespace MIB {
                     }
                     break;
                 }
-                break;
+                return q.pushOp(&OpTableDef_COM);
             }
             case DelimType::BRKT_R:
                 //Lブラケットにあたるまで払い出し
@@ -987,14 +990,17 @@ namespace MIB {
                     }
                     else {                        
                         MIB_ASSERT(w->prio != 0);
-                        q.pushOp(w);
+                        if (!q.pushOp(w)) {
+                            return false;
+                        }
                     }
                     this->pop();
                 }
-                q.pushOp(&OpTableDef_BRKT_R);
-                return true;//積まない
+                return q.pushOp(&OpTableDef_BRKT_R);
             case DelimType::BRKT_L:
-                q.pushOp(&OpTableDef_BRKT_L);
+                if (!q.pushOp(&OpTableDef_BRKT_L)) {
+                    return false;
+                }
                 break;//Lを構造デリミタとして積む
             default:
             {
@@ -1010,7 +1016,9 @@ namespace MIB {
                         MIB_ASSERT(w->prio != 0);
                         if (w->prio <= s->prio) {
                             //払い出し
-                            q.pushOp(w);
+                            if (!q.pushOp(w)) {
+                                return false;
+                            }
                             this->pop();
                         }
                     }
@@ -1220,7 +1228,7 @@ private:
     OpStack<> ops;
     RpQueue<> vs;
 public:
-    Result parse(RawTokenIterator& iter, int depth = 0,bool nosolve=false)
+    Result parse(RawTokenIterator& iter,bool nosolve=false)
     {
         const RawTokenIterator::RawToken_t* token;
         RawTokenParser parser;
@@ -1319,6 +1327,17 @@ public:
                     }
                     sign = 0;
                     is_left_edge = true;
+                    //そのまま演算子を積む
+                    if (!this->ops.push(tmp_delim, this->vs)) {
+                        return Result::NG;
+                    }
+                    continue;
+                case DelimType::COM:
+                    //演算子の直前に符号があってはならない。
+                    if (sign != 0) {
+                        return Result::NG;
+                    }
+                    is_left_edge = true;// 1,-(1-3)ためして
                     //そのまま演算子を積む
                     if (!this->ops.push(tmp_delim, this->vs)) {
                         return Result::NG;
@@ -1452,96 +1471,8 @@ public:
         return this->vs.sdump(this->vs);
     }
 
-    static void test() {
-        struct local {
-            static void parse(const char* s, const char* a) {
-                RpSolver rp;
-                RawTokenIterator rti(s);
-                auto r = rp.parse(rti);
-                const char* m = rp.vs.sdump(rp.vs);
-                if (r == Result::OK) {
-                    printf("%s -> %s(%s)\n", s, m, memcmp(a, m, strlen(a)) == 0 ? "OK" : "NG");
-                }
-                else {
-                    printf("ERR %d %s\n", r, m);
-                }
-            }
-        };
-        local::parse("1+2*3)", "10");
+ 
 
-        //INT32 TEST
-        local::parse("1+127+32767+2147483647", "-2147450754");
-        local::parse("-1-128-32768-2147483648", "2147450751");
-        local::parse("1+(2+3+(4+5+6)+7)", "28");
-        local::parse("-1+(-2+-3+(-4+-5+-6)+-7)", "-28");
-        local::parse("-1+-2", "-3");
-        local::parse("1+2", "3");
-        local::parse("-1+-2*-3", "5");
-        local::parse("1+2*3", "7");
-        local::parse("-1+-2*-3+-4", "1");
-        local::parse("1+2*3+4", "11");
-        local::parse("-1+(-2+-3)", "-6");
-        local::parse("1+(2+3)", "6");
-        local::parse("1*-(2*3)", "-6");
-        local::parse("1*--(2*3)", "6");
-        local::parse("-1+(-2+-3)", "-6");
-        local::parse("-1*+(-2+-3)", "5");
-        local::parse("-10/(-2+-3)", "2");
-        local::parse("-10%(-2+-3)", "0");
-
-        ////chatGPT generated test
-        local::parse("3+4*2", "11");         // 3 + 4 * 2 = 11
-        local::parse("(7+3)*2", "20");       // (7 + 3) * 2 = 20
-        local::parse("1+2+3+4+5", "15");     // 1 + 2 + 3 + 4 + 5 = 15
-        local::parse("8*4-6/2", "29");       // 8 * 4 - 6 / 2 = 16 (修正)
-        local::parse("(1+2)*(3+4)", "21");   // (1 + 2) * (3 + 4) = 21
-        local::parse("-2*4+3", "-5");        // -2 * 4 + 3 = -5
-        local::parse("-(3+4)*2", "-14");     // -(3 + 4) * 2 = -14
-        local::parse("-2+3*4", "10");        // -2 + 3 * 4 = 10
-        local::parse("-(2+3*4)", "-14");     // -(2 + 3 * 4) = -14
-        local::parse("---2", "-2");          // -(-(-2)) = -2
-        local::parse("--2*3", "6");          // -(-2) * 3 = 6
-        local::parse("(((2+3*3)*4))", "44");   // (((2 + 3) * 4)) = 20
-        local::parse("((2+3)*4+(5-2))", "23"); // ((2 + 3) * 4 + (5 - 2)) = 21
-        local::parse("(2+3)*(4+5)", "45");   // (2 + 3) * (4 + 5) = 45
-        local::parse("((2+3)*(4+5))*(3-1)", "90"); // ((2 + 3) * (4 + 5)) * (3 - 1) = 90
-
-        local::parse("\"ABCDE\"+\"FG\"", "\"ABCDEFG\"");
-        local::parse("\"ABCDE\"+1+2-3", "\"ABCDE12-3\"");
-        local::parse("\"ABCDE\"+1+(2+3)", "\"ABCDE15\"");
-        local::parse("\"AB\"+1+(2+3+4)", "\"AB19\"");
-        local::parse("1+(2+\"AB\"+3)", "\"12AB3\"");
-        local::parse("1+(2+\"AB\"+3*-2)", "\"12AB-6\"");
-        local::parse("1<3", "TRUE");
-        local::parse("3<3", "FALSE");
-        local::parse("3<3+1", "TRUE");
-        //////        local::parse("(3<3)+1", "TRUE");
-        local::parse("1<=3", "TRUE");
-        local::parse("3<=3", "TRUE");
-        local::parse("3<=4", "TRUE");
-        local::parse("1>3", "FALSE");
-        local::parse("3>3", "FALSE");
-        local::parse("3>4", "FALSE");
-        local::parse("1>=3", "FALSE");
-        local::parse("3>=3", "TRUE");
-        local::parse("3>=4", "FALSE");
-        local::parse("3==4", "FALSE");
-        local::parse("3==3", "TRUE");
-        local::parse("3!=4", "TRUE");
-        local::parse("3<>4", "TRUE");
-        local::parse("9 And(4+1)", "1");
-        local::parse("8 Or (4-1)", "11");
-        local::parse("1 Xor 0", "1");
-        local::parse("3+(1 << 1)", "5");
-        local::parse("2-(2 >> 1)", "1");
-        local::parse("4-2 << 1", "4");
-        local::parse("Not 0", "-1");
-        local::parse("Not (1==1)", "FALSE");
-        local::parse("(1!=1) And (1==1)", "FALSE");
-        local::parse("(2==2) And (1==1)", "TRUE");
-        local::parse("(1!=1) Or (1==1)", "TRUE");
-        return;
-    }
 #endif
 };
 

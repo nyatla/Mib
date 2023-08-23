@@ -49,5 +49,8 @@
     <ClInclude Include="..\..\src\rawtoken\RawTokenIterator.h">
       <Filter>rawtoken</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\rpsolver\Finctions.h">
+      <Filter>rpsolver</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

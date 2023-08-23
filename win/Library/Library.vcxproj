@@ -136,6 +136,7 @@
     <ClInclude Include="..\..\src\rawtoken\rawtoken.h" />
     <ClInclude Include="..\..\src\rawtoken\RawTokenIterator.h" />
     <ClInclude Include="..\..\src\rawtoken\_rawtoken_imports.h" />
+    <ClInclude Include="..\..\src\rpsolver\Finctions.h" />
     <ClInclude Include="..\..\src\rpsolver\rpsolver.h" />
     <ClInclude Include="..\..\src\rpsolver\RpSolver_.h" />
     <ClInclude Include="..\..\src\rpsolver\sandbox.h" />

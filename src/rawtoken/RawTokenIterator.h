@@ -20,6 +20,11 @@ namespace MIB {
     /// NUMBER  [0-9]+
     /// WORD   他
     /// 終端は"\r"
+    /// 
+    /// 
+    /// 
+    /// 
+    /// 
     /// </summary>
     class RawTokenIterator {
     public:
