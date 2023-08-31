@@ -20,6 +20,9 @@ namespace MIB {
     public:
         GapVector() :_begin(0), _end(SIZE) {
         }
+        /// <summary>
+        /// バッファをクリアする
+        /// </summary>
         void clear() {
             this->_begin = 0;
             this->_end = SIZE;
@@ -31,6 +34,17 @@ namespace MIB {
         int size()const {
             return SIZE - (this->_end - this->_begin);
         }
+        /// <summary>
+        /// 未利用常態かを返す。
+        /// </summary>
+        /// <returns></returns>
+        bool isEmpty() {
+            return SIZE- (this->_end - this->_begin)==0;
+        }
+        /// <summary>
+        /// 利用可能サイズ
+        /// </summary>
+        /// <returns></returns>
         int freeSize()const {
             return (this->_end - this->_begin);
         }
@@ -60,13 +74,13 @@ namespace MIB {
             return false;
         }
         /// <summary>
-        /// バッファのidxのポインタを、lenサイズだけ連続して読みだせるようにして返します。
+        /// バッファのidxのポインタを、lenサイズだけ連続アクセスできるようにして返します。
         /// </summary>
         /// <param name="idx"></param>
         /// <param name="len"></param>
         /// <param name="out">falseの場合、更新しない</param>
         /// <returns></returns>
-        bool ptr(int idx, int len, const void*& out) {
+        bool ptr(int idx, int len, void*& out) {
             MIB_ASSERT(idx >= 0);
             MIB_ASSERT(len >= 0);
             auto begin = this->_begin;
@@ -89,7 +103,7 @@ namespace MIB {
             }
             //左にまとめる
             if (idx < begin && end <= idx_e+gp) {
-                move(-(idx+len - begin));
+                this->move(-(idx+len - begin));
                 out=&this->_buf[idx];
                 return true;
             }
@@ -109,8 +123,8 @@ namespace MIB {
             return this->insert(idx, src, (int)strlen(src));
         }
         bool insert(int idx, const void* src, int len) {
-            char* buf;
-            if (!this->reserve(idx, len,(const char*&)buf)) {
+            char* buf = NULL;
+            if (!this->reserve(idx, len,(void*&)buf)) {
                 return false;
             }
             memmove(buf, src, len);
@@ -146,6 +160,14 @@ namespace MIB {
             //}
             //return false;
         }
+        /// <summary>
+        /// idxからlenまでの区間を連続したバッファとして確保する。
+        /// 確保した領域の値はそのまま残る。
+        /// </summary>
+        /// <param name="idx"></param>
+        /// <param name="len"></param>
+        /// <param name="reserbedbuf"></param>
+        /// <returns></returns>
         bool reserve(int idx, int len, void*& reserbedbuf) {
             MIB_ASSERT(idx >= 0);
             MIB_ASSERT(len >= 0);
@@ -159,21 +181,26 @@ namespace MIB {
             }
             if (idx <= begin)
             {   //begin側挿入
-                move(begin - idx);
+                this->move(begin - idx);
                 reserbedbuf = &buf[idx];
                 this->_begin += len;
                 return true;
             }
             if (end < idx + gp) {
                 //end側挿入
-                move(-(idx + gp - end));
+                this->move(-(idx + gp - end));
                 reserbedbuf = &buf[this->_end - len];
                 this->_end -= len;
                 return true;
             }
             return false;
         }
-
+        /// <summary>
+        /// idxからlenの領域を削除します。
+        /// </summary>
+        /// <param name="idx"></param>
+        /// <param name="len"></param>
+        /// <returns></returns>
         bool remove(int idx, int len) {
 
             MIB_ASSERT(idx >= 0);
@@ -257,7 +284,7 @@ namespace MIB {
                 }
                 static void ptr(GapVector<10>& g, int idx, int len, bool ret, const char* result,const char* frgmnt) {
                     char t1[256];
-                    const void* out=0;
+                    void* out=0;
                     auto r = g.ptr(idx, len,out);    //1 9 空に追加 
                     const char* dump = g.dump(t1);
                     printf("[%s] %s %s\n", (strcmp(result, dump) == 0 && r == ret) ? "OK" : "NG", r ? "true" : "false", dump);
@@ -265,6 +292,17 @@ namespace MIB {
                         printf("\t%.*s==%s\n",len,out, frgmnt);
                     }
                 }
+                static void reserve(GapVector<10>& g, int idx, int len, bool ret, const char* result) {
+                    char t1[256];
+                    void* out = 0;
+                    auto r = g.reserve(idx, len, out);    //1 9 空に追加 
+                    const char* dump = g.dump(t1);
+                    printf("[%s] %s %s\n", (strcmp(result, dump) == 0 && r == ret) ? "OK" : "NG", r ? "true" : "false", dump);
+                    //if (r) {
+                    //    printf("\t%.*s==%s\n", len, out, frgmnt);
+                    //}
+                }
+
 
             };
             {   GapVector<10> g;
@@ -394,6 +432,24 @@ namespace MIB {
             {   GapVector<10> g("01234", "56789");
                 local::ptr(g, 2, 5, true, "0123456:789:0","23456");
             }
+            {   GapVector<10> g("012", "345");
+                local::reserve(g, 1, 2, true, "012:12345:2");
+            }
+            {   GapVector<10> g("012\0", "345");
+                local::reserve(g, 1, 3, true, "012:12345:1");
+            }
+            {
+                GapVector<10> g("012", "345");
+                g.remove(0, 6);
+                if (g.freeSize() == 10 && g.isEmpty() && g.size()==0) {
+                    printf("[OK]\n");
+                }
+                else {
+                    printf("[NG]\n");
+                }
+
+            }
+
 
         }
 #endif
