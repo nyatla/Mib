@@ -1,3 +1,7 @@
+/** 行番号をキーにしたメモリ管理クラス
+
+*/
+
 #pragma once
 #include "./_linebuf_imports.h"
 #include "./GapVector.h"
@@ -38,12 +42,12 @@ namespace MIB {
         /// <param name="buf"></param>
         /// <param name="size"></param>
         /// <returns></returns>
-        virtual Result update(MIB_UINT16 line, const char* buf, int size) = 0;
+        virtual Result update(MIB_UINT16 line, const char* value, int size) = 0;
     };
 
 
     /// <summary>
-    /// GapVectorを使った実装です。最終アクセス値へのキャッシュを持ちます。
+    /// GapVectorを使った実装です。
     /// 値はブロックヘッダと内容をセットにしたメモリブロックとして、行番号順に格納します。
     /// </summary>
     /// <typeparam name="BUFSIZE"></typeparam>
@@ -77,6 +81,7 @@ namespace MIB {
         /// <summary>
         /// targetlineと同じ、もしくは直前のmbhを返す。
         /// 直前が存在しない場合は、index=start_index,mbh=NULL
+        /// これはメモリが空か、target_lineが既存の者より若い場合である。
         /// 直前の有無はmbhのNULLで判定して。
         /// </summary>
         /// <param name="target_line"></param>
@@ -153,7 +158,7 @@ namespace MIB {
             struct MemBlockHeader* mbh_tmp = NULL;
             int index=0;
             if (!this->findEqualLessMbh(line, index, mbh_tmp,0)) {
-                return Result::NG_NO_LINE;
+                return Result::NG;
             }
             if ((index == 0 && mbh_tmp == NULL) || mbh_tmp->line() != line)
             {   //lineが一致しない場合
@@ -161,7 +166,7 @@ namespace MIB {
             }
             //実体を削除
             if (!this->_buf.remove(index, mbh_tmp->size+3)) {
-                return Result::NG_NO_LINE;
+                return Result::NG;
             }
             return Result::OK;
         }
@@ -173,14 +178,14 @@ namespace MIB {
         /// <param name="buf"></param>
         /// <param name="size"></param>
         /// <returns></returns>
-        virtual Result update(MIB_UINT16 line, const char* buf, int size)
+        virtual Result update(MIB_UINT16 line, const char* value, int size)
         {
             struct MemBlockHeader* mbh = NULL;
             int index = 0;
             int start = 0;
             if (!this->findEqualLessMbh(line, index, mbh, 0))
             {   //APIエラー
-                return Result::NG_NO_LINE;
+                return Result::NG;
             }
             if (mbh == NULL)
             {   //先頭に挿入
