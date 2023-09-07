@@ -52,5 +52,8 @@
     <ClInclude Include="..\..\src\rpsolver\Finctions.h">
       <Filter>rpsolver</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\src\linebuf\DictBuffer.h">
+      <Filter>linebuf</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

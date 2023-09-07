@@ -10,6 +10,13 @@
 
 
 
+/********************************************************************************
+*
+* Types
+*
+********************************************************************************/
+
+
 namespace MIB{
     #define MIB_ASSERT(e) _ASSERT((e))
 
@@ -81,8 +88,6 @@ namespace MIB {
 
 
 
-
-
     
     inline void int2bytes(MIB_INT32 s, void* buf){
         auto b = (unsigned char*)buf;
@@ -102,7 +107,6 @@ namespace MIB {
         *b = (s >> 8) & 0xff;
         *(b + 1) = s & 0xff;
     }
-
 
 
 

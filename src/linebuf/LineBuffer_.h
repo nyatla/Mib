@@ -90,7 +90,6 @@ namespace MIB {
         /// <returns></returns>
         bool findEqualLessMbh(MIB_UINT16 target_line,int& index, struct MemBlockHeader* &mbh,int start_index=0)
         {
-            struct MemBlockHeader* mbh_tmp = NULL;
             //初期値設定
             int r_index=start_index;
             struct MemBlockHeader* r_mbh = NULL;
@@ -101,6 +100,7 @@ namespace MIB {
                     //バッファ位置超過
                     break;
                 }
+                struct MemBlockHeader* mbh_tmp = NULL;
                 if (!this->_buf.ptr(idx, 3, (void*&)mbh_tmp)) {
                     return false;
                 }
@@ -194,7 +194,7 @@ namespace MIB {
                     return Result::NG_OOM;
                 }
                 ((struct MemBlockHeader*)mem)->set(line, (MIB_UINT8)size);
-                memmove(mem + 3, buf, size);
+                memmove(mem + 3, value, size);
             }else if (mbh->line() == line)
             {   //既存行に対する操作
                 int d = size-mbh->size;//新サイズ-旧サイズ
@@ -202,12 +202,12 @@ namespace MIB {
                 if (d == 0) {
                     //同一サイズ
                     MIB_INT8* mem = NULL;
-                    //データ部分のポインタに値をコピー
+                    //データ部分のポインタを取得
                     if (!this->_buf.ptr(index + 3, mbh->size, (void*&)mem))
                     {
                         return Result::NG;
                     }
-                    memmove(mem, buf, size);
+                    memmove(mem, value, size);
                 }
                 else if (d < 0) {
                     //縮小
@@ -220,7 +220,7 @@ namespace MIB {
                         return Result::NG;
                     }
                     ((struct MemBlockHeader*)mem)->set(line, (MIB_UINT8)size);
-                    memmove(mem + 3, buf, size);
+                    memmove(mem + 3, value, size);
                     //
                 }
                 else {//d>0
@@ -236,7 +236,7 @@ namespace MIB {
                         return Result::NG;
                     }
                     ((struct MemBlockHeader*)mem)->set(line, (MIB_UINT8)size);
-                    memmove(mem + 3, buf, size);
+                    memmove(mem + 3, value, size);
                     //
                 }
             }else
@@ -248,7 +248,7 @@ namespace MIB {
                     return Result::NG_OOM;
                 }
                 ((struct MemBlockHeader*)mem)->set(line, (MIB_UINT8)size);
-                memmove((MIB_INT8*)mem+3, buf, size);
+                memmove((MIB_INT8*)mem+3, value, size);
             }
             return Result::OK;
         }

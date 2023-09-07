@@ -74,6 +74,49 @@ namespace MIB {
             return false;
         }
         /// <summary>
+        /// バッファの再配置を行わずに値をコピーします。
+        /// 戻り値はoutに返した値のバイト数です。
+        /// </summary>
+        /// <typeparam name="SIZE"></typeparam>
+        int gets(int index, int len, MIB_UINT8* out)const
+        {
+            MIB_ASSERT(index >= 0);
+            MIB_ASSERT(len >= 0);
+            for (auto i = 0;i < len;i++) {
+                auto idx = index + i;
+                if (idx < this->_begin) {
+                    *(out + i) = this->_buf[idx];
+                    continue;
+                }
+                idx = idx - this->_begin+this->_end;
+                if(idx<SIZE){
+                    *(out + i) = this->_buf[idx];
+                    continue;
+                }
+                return i;
+            }
+            return len;
+        }
+        /// <summary>
+        /// バッファの再配置を行わずに値をコピーします。
+        /// エラー時は-1です。
+        /// </summary>
+        /// <typeparam name="SIZE"></typeparam>
+        int get(int index)const
+        {
+            MIB_ASSERT(index >= 0);
+            auto idx = index;
+            if (idx < this->_begin) {
+                return (int)this->_buf[idx];
+            }
+            idx = idx - this->_begin + this->_end;
+            if (idx < SIZE) {
+                return (int)this->_buf[idx];
+            }
+            return -1;
+        }
+
+        /// <summary>
         /// バッファのidxのポインタを、lenサイズだけ連続アクセスできるようにして返します。
         /// </summary>
         /// <param name="idx"></param>
@@ -442,6 +485,62 @@ namespace MIB {
                 GapVector<10> g("012", "345");
                 g.remove(0, 6);
                 if (g.freeSize() == 10 && g.isEmpty() && g.size()==0) {
+                    printf("[OK]\n");
+                }
+                else {
+                    printf("[NG]\n");
+                }
+            }
+            {
+                //gets
+                GapVector<10> g("012", "345");
+                MIB_UINT8 l = 0;
+                MIB_UINT8 b[5] = {};
+                if (g.gets(0, 1, b) == 1 && memcmp(b, "0", 1) == 0) {
+                    printf("[OK]\n");
+                }
+                else {
+                    printf("[NG]\n");
+                }
+                memset(b, 0, 5);
+                if (g.gets(0, 4, b) == 4 && memcmp(b, "0123", 4) == 0) {
+                    printf("[OK]\n");
+                }
+                else {
+                    printf("[NG]\n");
+                }
+                memset(b, 0, 5);
+                if (g.gets(3, 4, b) == 3 && memcmp(b, "345", 3) == 0) {
+                    printf("[OK]\n");
+                }
+                else {
+                    printf("[NG]\n");
+                }
+            }
+            {
+                //get
+                GapVector<10> g("012", "345");
+                MIB_UINT8 l = 0;
+                MIB_UINT8 b[5] = {};
+                if (g.get(0) == (int)'0') {
+                    printf("[OK]\n");
+                }
+                else {
+                    printf("[NG]\n");
+                }
+                if (g.get(7) == -1) {
+                    printf("[OK]\n");
+                }
+                else {
+                    printf("[NG]\n");
+                }
+                if (g.get(3) == (int)'3') {
+                    printf("[OK]\n");
+                }
+                else {
+                    printf("[NG]\n");
+                }
+                if (g.get(5) == (int)'5') {
                     printf("[OK]\n");
                 }
                 else {

@@ -87,6 +87,51 @@ namespace MIB {
 #define OpTableDef_COM (OpTableDef[(int)DelimType::COM])
 
 
+    /// <summary>
+    /// キーワード関数のためのキュー操作オブジェクトです。
+    /// </summary>
+    class RpQueueContext{
+    public:
+        bool done;
+        const int length;
+        /// <summary>
+        /// 0にキーワード名,1以降に変数への参照
+        /// </summary>
+        /// <param name="index"></param>
+        void argType(int index)const {};
+        void argAsInt(int index)const {};
+        void argAsStr(int index)const {};
+        /// <summary>
+        /// キーワード関数をキューから削除して、新しく値を積みます。
+        /// この関数は1度だけ
+        /// </summary>
+        void replaceToStr(const char* v,int size) {};
+        void replaceToInt(int v) {};
+    };
+    class RpFunction {
+    public:
+        bool execute(RpQueueContext& context) {
+        }
+        virtual ~RpFunction() {};
+
+    };
+    /// <summary>
+    /// テスト用のダミー関数
+    /// </summary>
+    class DummmyFunction: public RpFunction{
+        bool execute(RpQueueContext& context) {
+            context.replaceToInt(299);
+            return true;
+        }
+    };
+
+    /// <summary>
+    /// NULL終端のFunctionTable
+    /// </summary>
+    const RpFunction* function_table = {
+        NULL
+    };
+
 
 
 
@@ -763,6 +808,15 @@ namespace MIB {
                 }
                 if (t != (int)DelimType::BRKT_L) {
                     continue;
+                }
+                //ブラケット直前がキーワードか判定
+                if (this->peekType(-(i + 1), t)) {
+                    if (TYPE_KWD_MIN <= t && t <= TYPE_KWD_MAX) {
+                        ////キーワード処理
+                        //Args args(*this, -(i - 1), n);
+                        ////名前,引数リスト
+                        //functionCallback(args);
+                    }
                 }
                 //発見->ブラケットを取り去る
                 this->remove(-i);

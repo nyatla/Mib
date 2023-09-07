@@ -127,6 +127,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\src\linebuf\DictBuffer.h" />
     <ClInclude Include="..\..\src\linebuf\GapVector.h" />
     <ClInclude Include="..\..\src\linebuf\linebuf.h" />
     <ClInclude Include="..\..\src\linebuf\LineBuffer_.h" />
