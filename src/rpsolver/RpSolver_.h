@@ -92,44 +92,65 @@ namespace MIB {
     /// </summary>
     class RpQueueContext{
     public:
+        virtual ~RpQueueContext() {};
+    public:
         bool done;
         const int length;
         /// <summary>
         /// 0にキーワード名,1以降に変数への参照
         /// </summary>
         /// <param name="index"></param>
-        void argType(int index)const {};
-        void argAsInt(int index)const {};
-        void argAsStr(int index)const {};
+        virtual void argType(int index)const=0;
+        virtual void argAsInt(int index)const {};
+        virtual void argAsStr(int index)const {};
         /// <summary>
         /// キーワード関数をキューから削除して、新しく値を積みます。
         /// この関数は1度だけ
         /// </summary>
-        void replaceToStr(const char* v,int size) {};
-        void replaceToInt(int v) {};
+        virtual void replaceToStr(const char* v,int size)=0;
+        virtual void replaceToInt(int v) = 0;
     };
+
+
     class RpFunction {
     public:
+        const char* name;
+        virtual ~RpFunction() {
+
+        }
+    public:
+
         bool execute(RpQueueContext& context) {
         }
-        virtual ~RpFunction() {};
 
     };
     /// <summary>
     /// テスト用のダミー関数
     /// </summary>
-    class DummmyFunction: public RpFunction{
+    static class DummmyFunction: public RpFunction{
         bool execute(RpQueueContext& context) {
             context.replaceToInt(299);
             return true;
         }
-    };
-
+    }_DummmyFunction;
     /// <summary>
     /// NULL終端のFunctionTable
     /// </summary>
-    const RpFunction* function_table = {
-        NULL
+    static struct FunctionTable {
+        RpFunction* _table[];
+        RpFunction* getFunctionByKwd(const char* name) {
+            for (auto i = 0;;i++) {
+                if (strcmp(this->_table[i]->name, name) == 0) {
+                    return this->_table[i];
+                }
+            }
+            return NULL;
+        }
+    }function_table = {
+        {
+            &_DummmyFunction,
+            NULL,
+        }
     };
 
 
@@ -162,7 +183,15 @@ namespace MIB {
     /// <typeparam name="QSIZE"></typeparam>
     /// <typeparam name="STACKDEPTH"></typeparam>
     template <int QSIZE = 256, int STACKDEPTH = 16> class RpQueue {
-
+    public:
+        enum class Result {
+            OK,
+            NG,
+            NG_UNDEF_FUNCTION_KEYWORD,
+            NG_UNDEF_VALUE_KEYWORD,
+            NG_CANNOT_CAST,
+            NG_INDEX_RANGE,
+        };
     private:    
         /// <summary>
         /// TYPE_XはUINT8型でスタックに積まれた変数の値を示します。
@@ -194,7 +223,6 @@ namespace MIB {
         //!PENDING S=255         long binaly             [OP:1][S:2][V:*]最大で65535バイトのバイナリ
         MIB_UINT8 _buf[QSIZE] = {};         //値を格納するメモリ
         //bufに格納したデータブロックの先頭位置を示すインデクス値
-        //
         MIB_UINT16 _stack[STACKDEPTH] = {};  //格納位置
         int _sp = 0;                //スタックポインタ   
         int _ptr = 0;               //書込みポインタ
@@ -207,6 +235,9 @@ namespace MIB {
         virtual int handleKeyword(int sp,int size)
         {
             return 0;
+        }
+        virtual Result handleFunction() {
+            return Result::NG;
         }
     public:
         /// <summary>
@@ -799,12 +830,12 @@ namespace MIB {
             }
             return true;
         }
-        bool do_brk_r() {
+        Result do_brk_r() {
             //直前の(を検出する。
             for (auto i = 1;;i++) {
                 auto t = 0;
                 if (!this->peekType(-i, t)) {
-                    return false;
+                    return Result::NG;
                 }
                 if (t != (int)DelimType::BRKT_L) {
                     continue;
@@ -812,15 +843,20 @@ namespace MIB {
                 //ブラケット直前がキーワードか判定
                 if (this->peekType(-(i + 1), t)) {
                     if (TYPE_KWD_MIN <= t && t <= TYPE_KWD_MAX) {
-                        ////キーワード処理
+                        ////キーワード関数処理
+                        //関数がスタックを操作し終えていることを期待する。
+                        return Result::NG;
+                        //return this->handleFunction(int index);
+
                         //Args args(*this, -(i - 1), n);
                         ////名前,引数リスト
                         //functionCallback(args);
                     }
                 }
+                //単純ブラケット
                 //発見->ブラケットを取り去る
                 this->remove(-i);
-                return true;
+                return Result::OK;
                 //if (i == 2) {
                 //    this->remove(-i);
                 //    return true;
@@ -829,9 +865,6 @@ namespace MIB {
 
                 //直前がKWDの場合→関数
                 //それ以外の場合→ブラケットの包んでいる値は１個だけ。かつブラケットの取り外し
-
-
-                //中身が
             }
         }
         /// <summary>
@@ -868,7 +901,9 @@ namespace MIB {
             //COMはそのまま
             case (int)DelimType::COM:    oret = true;break;
             case (int)DelimType::BRKT_L: oret = true;break;
-            case (int)DelimType::BRKT_R:    oret = this->do_brk_r();break;
+            case (int)DelimType::BRKT_R:
+                oret = this->do_brk_r() == Result::OK;
+                break;
             default:break;
             }
             //if (this->_strProc(t1)) {
@@ -1278,6 +1313,8 @@ private:
             return Result::OK;
         }
     };
+private:
+    struct FunctionTable* _func_table = &function_table;
 private:
     OpStack<> ops;
     RpQueue<> vs;
