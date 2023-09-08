@@ -87,20 +87,34 @@ namespace MIB {
 #define OpTableDef_COM (OpTableDef[(int)DelimType::COM])
 
 
+    class RpQueue;
     /// <summary>
     /// キーワード関数のためのキュー操作オブジェクトです。
     /// </summary>
     class RpQueueContext{
+    private:
+        RpQueue& _q;
+        int _top;
     public:
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="q">index番目の要素に,KWD,str,gt,v,com,...ltの順で値が格納されていると仮定します。</param>
+        /// <param name="index"></param>
+        RpQueueContext(RpQueue& q, int index) :_q(q), _top(index)
+        {
+        }
         virtual ~RpQueueContext() {};
     public:
-        bool done;
-        const int length;
+        //bool done;
+        //const int length;
         /// <summary>
         /// 0にキーワード名,1以降に変数への参照
         /// </summary>
         /// <param name="index"></param>
-        virtual void argType(int index)const=0;
+        //RpQueue::Result argType(int index,int& dest)const {
+        //    return this->_q.peekType(2 + index * 2, dest);
+        //};
         virtual void argAsInt(int index)const {};
         virtual void argAsStr(int index)const {};
         /// <summary>
@@ -157,7 +171,8 @@ namespace MIB {
 
 
     /// <summary>
-    /// 逆ポーランド記法の計算キューです。
+    /// 逆ポーランド記法の計算キューの実装です。
+    /// メモリサイズを決定する部分はRpQueueImplに実装します。
     /// 演算子:
     ///     順序
     ///         ( )　,
@@ -182,7 +197,7 @@ namespace MIB {
     /// </summary>
     /// <typeparam name="QSIZE"></typeparam>
     /// <typeparam name="STACKDEPTH"></typeparam>
-    template <int QSIZE = 256, int STACKDEPTH = 16> class RpQueue {
+    class RpQueue {
     public:
         enum class Result {
             OK,
@@ -192,7 +207,8 @@ namespace MIB {
             NG_CANNOT_CAST,
             NG_INDEX_RANGE,
         };
-    private:    
+        virtual ~RpQueue() {};
+    protected:
         /// <summary>
         /// TYPE_XはUINT8型でスタックに積まれた変数の値を示します。
         /// </summary>
@@ -221,11 +237,11 @@ namespace MIB {
         //S=191         long string             [OP:1][S:2][V:*] 最大で65535文字の文字列。2バイトのサイズ情報付き
         //!PENDING S=192-254     short bytes (0-62)      [OP+S:1][V] 最大で62バイトのバイナリ
         //!PENDING S=255         long binaly             [OP:1][S:2][V:*]最大で65535バイトのバイナリ
-        MIB_UINT8 _buf[QSIZE] = {};         //値を格納するメモリ
-        //bufに格納したデータブロックの先頭位置を示すインデクス値
-        MIB_UINT16 _stack[STACKDEPTH] = {};  //格納位置
-        int _sp = 0;                //スタックポインタ   
-        int _ptr = 0;               //書込みポインタ
+        //MIB_UINT8 _buf[QSIZE] = {};         //値を格納するメモリ
+        ////bufに格納したデータブロックの先頭位置を示すインデクス値
+        //MIB_UINT16 _stack[STACKDEPTH] = {};  //格納位置
+        //int _sp = 0;                //スタックポインタ   
+        //int _ptr = 0;               //書込みポインタ
         bool _push_only = false;    //プロパティ。計算省略フラグ
     protected:
         /// <summary>
@@ -243,114 +259,44 @@ namespace MIB {
         /// <summary>
         /// インスタンスをリセットする
         /// </summary>
-        void reset() {
-            this->_sp = 0;
-            this->_ptr = 0;
+        virtual void reset() {
             this->_push_only = false;
         }
-    private:
-        bool _getStackIndex(int idx, int& s)const
-        {
-            if (idx >= 0){
-                if (idx < this->_sp) {
-                    s = idx;
-                    return true;
-                }
-            }
-            else if (this->_sp + idx >= 0) {
-                s = this->_sp + idx;
-                return true;
-            }
-            return false;
-        }
-        /// <summary>
-        /// N番目のスタック要素のbuf上のサイズを返します。
-        /// </summary>
-        /// <returns></returns>
-        bool _getBlockSize(int idx, int& s)const
-        {
-            int p;
-            if (!this->_getStackIndex(idx, p)) {
-                return false;
-            }
-            auto b = this->constPtr(idx);
-            if (b == NULL) {
-                return false;
-            }
-            auto tval = b[0];//型変数
-            if (tval <= TYPE_OP_MAX || tval== TYPE_BOOL_TRUE || tval== TYPE_BOOL_FALSE) {
-                s=1;
-            }
-            else if (tval== TYPE_INT32) {
-                s = 5;
-            }
-            else if (tval == TYPE_INT16) {
-                s = 3;
-            }
-            else if (tval == TYPE_INT8) {
-                s = 2;
-            }
-            else if ((TYPE_KWD_MIN<=tval && tval<=TYPE_KWD_MAX)){
-                s = 1 + tval - TYPE_KWD_MIN;
-            }
-            else if ((TYPE_SHORT_STR_MIN <= tval && tval <= TYPE_SHORT_STR_MAX)) {
-                s = 1 + tval - TYPE_SHORT_STR_MIN;
-            }
-            else if (tval == TYPE_LONG_STR) {
-                s = 1 + 2 + bytes2ushort(&b[1]);
-            }
-            else {
-                return false;
-            }
-            return true;
-        }
-
         /// <summary>
         /// n番目の要素のキューメモリ上のポインタを返します。
         /// </summary>
         /// <param name="idx"></param>
         /// <returns></returns>
-        MIB_UINT8* ptr(int idx)
-        {
-            int p;
-            if (!_getStackIndex(idx, p)) {
-                return NULL;
-            }
-            return &this->_buf[*(this->_stack + p)];
-        }
+        virtual MIB_UINT8* ptr(int idx) = 0;
         /// <summary>
         /// constポインタ版
         /// </summary>
         /// <param name="idx"></param>
         /// <returns></returns>
-        const MIB_UINT8* constPtr(int idx)const
-        {
-            int p;
-            if (!_getStackIndex(idx, p)) {
-                return NULL;
-            }
-            return this->_buf + *(this->_stack + p);
-        }
-    public:
+        virtual const MIB_UINT8* constPtr(int idx)const = 0;
         /// <summary>
-        /// メモリブロックをpushします。
+        /// メモリブロックを1個pushします。
         /// </summary>
         /// <param name="d">NULLの場合、スタックポインタのみ移動します。</param>
         /// <param name="s"></param>
         /// <returns></returns>
-        bool push(const MIB_INT8* d, int s) {
-            auto& ptr = this->_ptr;
-            auto& buf = this->_buf;
-            if (ptr + s >= QSIZE || this->_sp >= STACKDEPTH) {
-                return false;
-            }
-            if (d != NULL) {
-                memmove(buf + ptr, d, s);
-            }
-            this->_stack[this->_sp++] = ptr;
-            this->_ptr += s;
-            return true;
-        }
+        virtual bool push(const MIB_INT8* d, int s) = 0;
+        /// <summary>
+        /// n個の値をpopする。
+        /// </summary>
+        /// <param name="n"></param>
+        /// <returns></returns>
+        virtual bool pop(int n) = 0;
+
+        ///// <summary>
+        ///// キューからn番目の要素を取り外す。
+        ///// </summary>
+        ///// <param name="n"></param>
+        ///// <returns></returns>
+        virtual bool remove(int idx) = 0;
+
+
+    public:
         bool pushInt(MIB_INT32 v) {
             if (v > INT16_MAX || v < INT16_MIN) {
                 MIB_INT8 d[5] = { TYPE_INT32 , };
@@ -406,55 +352,7 @@ namespace MIB {
             MIB_INT8 d = v ? TYPE_BOOL_TRUE : TYPE_BOOL_FALSE;
             return this->push(&d, 1);
         }
-        /// <summary>
-        /// n個の値をpopする。
-        /// </summary>
-        /// <param name="n"></param>
-        /// <returns></returns>
-        bool pop(int n)
-        {
-            for (auto i = 0;i < n;i++) {
-                if (this->_sp < 1) {
-                    return false;
-                }
-                int bs = 0;
-                if (!this->_getBlockSize(-1,bs)) {
-                    return false;
-                }
-                this->_sp--;
-                this->_ptr -= bs;
-            }
-            return true;
-        }
-        ///// <summary>
-        ///// キューからn番目の要素を取り外す。
-        ///// </summary>
-        ///// <param name="n"></param>
-        ///// <returns></returns>
-        bool remove(int idx) {
-            int p;
-            if (!this->_getStackIndex(idx, p)) {
-                return false;
-            }
-            //末尾ならpopで終える。
-            if (p == this->_sp - 1) {
-                return this->pop(-1);
-            }
-            //中途なら左詰め
-            int bs=0;
-            if (!this->_getBlockSize(p, bs)) {   //ブロックのサイズ
-                return false;
-            }
-            auto bp = this->_stack[p];             //bufのポインタ
-            memmove(&this->_buf[bp], &this->_buf[bp + bs], this->_ptr - bs);//移動
-            //スタックの移動
-            for (auto i = p + 1;i < this->_sp;i++) {
-                this->_stack[i - 1] = this->_stack[i]-bs;
-            }
-            this->_sp--;
-            return true;
 
-        }
 
 
         ///// <summary>
@@ -948,6 +846,180 @@ namespace MIB {
         void setPushOnly(bool f) {
             this->_push_only = f;
         }
+    };
+
+
+    /// <summary>
+    /// 固定長メモリをラップする実装
+    /// </summary>
+    /// <typeparam name="QSIZE"></typeparam>
+    /// <typeparam name="STACKDEPTH"></typeparam>
+    template <int QSIZE = 256, int STACKDEPTH = 16> class RpQueueImpl :public RpQueue{
+    private:
+        MIB_UINT8 _buf[QSIZE] = {};         //値を格納するメモリ
+        //bufに格納したデータブロックの先頭位置を示すインデクス値
+        MIB_UINT16 _stack[STACKDEPTH] = {};  //格納位置
+        int _sp = 0;                //スタックポインタ   
+        int _ptr = 0;               //書込みポインタ
+    private:
+        bool _getStackIndex(int idx, int& s)const
+        {
+            if (idx >= 0) {
+                if (idx < this->_sp) {
+                    s = idx;
+                    return true;
+                }
+            }
+            else if (this->_sp + idx >= 0) {
+                s = this->_sp + idx;
+                return true;
+            }
+            return false;
+        }
+        /// <summary>
+        /// N番目のスタック要素のbuf上のサイズを返します。
+        /// </summary>
+        /// <returns></returns>
+        bool _getBlockSize(int idx, int& s)const
+        {
+            int p;
+            if (!this->_getStackIndex(idx, p)) {
+                return false;
+            }
+            auto b = this->constPtr(idx);
+            if (b == NULL) {
+                return false;
+            }
+            auto tval = b[0];//型変数
+            if (tval <= TYPE_OP_MAX || tval == TYPE_BOOL_TRUE || tval == TYPE_BOOL_FALSE) {
+                s = 1;
+            }
+            else if (tval == TYPE_INT32) {
+                s = 5;
+            }
+            else if (tval == TYPE_INT16) {
+                s = 3;
+            }
+            else if (tval == TYPE_INT8) {
+                s = 2;
+            }
+            else if ((TYPE_KWD_MIN <= tval && tval <= TYPE_KWD_MAX)) {
+                s = 1 + tval - TYPE_KWD_MIN;
+            }
+            else if ((TYPE_SHORT_STR_MIN <= tval && tval <= TYPE_SHORT_STR_MAX)) {
+                s = 1 + tval - TYPE_SHORT_STR_MIN;
+            }
+            else if (tval == TYPE_LONG_STR) {
+                s = 1 + 2 + bytes2ushort(&b[1]);
+            }
+            else {
+                return false;
+            }
+            return true;
+        }
+    protected:
+        /// <summary>
+        /// n番目の要素のキューメモリ上のポインタを返します。
+        /// </summary>
+        /// <param name="idx"></param>
+        /// <returns></returns>
+        MIB_UINT8* ptr(int idx)
+        {
+            int p;
+            if (!_getStackIndex(idx, p)) {
+                return NULL;
+            }
+            return &this->_buf[*(this->_stack + p)];
+        }
+        /// <summary>
+        /// constポインタ版
+        /// </summary>
+        /// <param name="idx"></param>
+        /// <returns></returns>
+        const MIB_UINT8* constPtr(int idx)const
+        {
+            int p;
+            if (!_getStackIndex(idx, p)) {
+                return NULL;
+            }
+            return this->_buf + *(this->_stack + p);
+        }
+    public:
+        void reset()
+        {
+            RpQueue::reset();
+            this->_sp = 0;
+            this->_ptr = 0;
+        }
+        /// <summary>
+        /// メモリブロックをpushします。
+        /// </summary>
+        /// <param name="d">NULLの場合、スタックポインタのみ移動します。</param>
+        /// <param name="s"></param>
+        /// <returns></returns>
+        bool push(const MIB_INT8* d, int s) {
+            auto& ptr = this->_ptr;
+            auto& buf = this->_buf;
+            if (ptr + s >= QSIZE || this->_sp >= STACKDEPTH) {
+                return false;
+            }
+            if (d != NULL) {
+                memmove(buf + ptr, d, s);
+            }
+            this->_stack[this->_sp++] = ptr;
+            this->_ptr += s;
+            return true;
+        }
+        /// <summary>
+        /// n個の値をpopする。
+        /// </summary>
+        /// <param name="n"></param>
+        /// <returns></returns>
+        bool pop(int n)
+        {
+            for (auto i = 0;i < n;i++) {
+                if (this->_sp < 1) {
+                    return false;
+                }
+                int bs = 0;
+                if (!this->_getBlockSize(-1, bs)) {
+                    return false;
+                }
+                this->_sp--;
+                this->_ptr -= bs;
+            }
+            return true;
+        }
+        ///// <summary>
+        ///// キューからn番目の要素を取り外す。
+        ///// </summary>
+        ///// <param name="n"></param>
+        ///// <returns></returns>
+        bool remove(int idx) {
+            int p;
+            if (!this->_getStackIndex(idx, p)) {
+                return false;
+            }
+            //末尾ならpopで終える。
+            if (p == this->_sp - 1) {
+                return this->pop(-1);
+            }
+            //中途なら左詰め
+            int bs = 0;
+            if (!this->_getBlockSize(p, bs)) {   //ブロックのサイズ
+                return false;
+            }
+            auto bp = this->_stack[p];             //bufのポインタ
+            memmove(&this->_buf[bp], &this->_buf[bp + bs], this->_ptr - bs);//移動
+            //スタックの移動
+            for (auto i = p + 1;i < this->_sp;i++) {
+                this->_stack[i - 1] = this->_stack[i] - bs;
+            }
+            this->_sp--;
+            return true;
+
+        }
+
 #ifdef TEST
     public:
         /// <summary>
@@ -956,7 +1028,7 @@ namespace MIB {
         /// </summary>
         /// <param name="inst"></param>
         /// <returns></returns>
-        static const char* sdump(const RpQueue& inst) {
+        static const char* sdump(const RpQueueImpl& inst) {
 
 
             static char strbuf[256];
@@ -1017,7 +1089,6 @@ namespace MIB {
     };
 
 
-
     /// <summary>
     /// 演算子スタック
     /// </summary>
@@ -1038,7 +1109,7 @@ namespace MIB {
         /// <param name="v"></param>
         /// <param name="q"></param>
         /// <returns></returns>
-        bool push(const OpDef* s, RpQueue<>& q)
+        bool push(const OpDef* s, RpQueue& q)
         {
             //超過チェック
             if (this->_ptr >= SIZE) {
@@ -1317,7 +1388,7 @@ private:
     struct FunctionTable* _func_table = &function_table;
 private:
     OpStack<> ops;
-    RpQueue<> vs;
+    RpQueueImpl<> vs;
 public:
     Result parse(RawTokenIterator& iter,bool nosolve=false)
     {
