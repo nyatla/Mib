@@ -168,7 +168,23 @@ namespace MIB {
     };
 
 
-
+    enum class RpResult {
+        OK,
+        NG,
+        NG_EOS,
+        //        NG_IO,
+        NG_TokenTooLong,
+        NG_StackOverFlow,
+        NG_SyntaxError,
+        NG_InvalidNumber,
+        NG_NumberRange,
+        NG_UnknownDelimiter,
+        NG_UnknownToken,
+        NG_KeywordTooLong,
+        NG_OpQIndexRange,
+        NG_CanNotCast,
+        NG_UndefinedOP,
+    };
 
     /// <summary>
     /// 逆ポーランド記法の計算キューの実装です。
@@ -199,14 +215,16 @@ namespace MIB {
     /// <typeparam name="STACKDEPTH"></typeparam>
     class RpQueue {
     public:
-        enum class Result {
-            OK,
-            NG,
-            NG_UNDEF_FUNCTION_KEYWORD,
-            NG_UNDEF_VALUE_KEYWORD,
-            NG_CANNOT_CAST,
-            NG_INDEX_RANGE,
-        };
+        //enum class Result {
+        //    OK,
+        //    NG,
+        //    NG_UNDEF_FUNCTION_KEYWORD,
+        //    NG_UNDEF_VALUE_KEYWORD,
+        //    NG_CANNOT_CAST,
+        //    NG_INDEX_RANGE,
+        //    NG_KWD_TOO_LONG,
+        //    NG_UNDEF_OP
+        //};
         virtual ~RpQueue() {};
     protected:
         /// <summary>
@@ -252,8 +270,8 @@ namespace MIB {
         {
             return 0;
         }
-        virtual Result handleFunction() {
-            return Result::NG;
+        virtual RpResult handleFunction() {
+            return RpResult::NG;
         }
     public:
         /// <summary>
@@ -267,37 +285,37 @@ namespace MIB {
         /// </summary>
         /// <param name="idx"></param>
         /// <returns></returns>
-        virtual MIB_UINT8* ptr(int idx) = 0;
+        virtual RpResult ptr(int idx, MIB_UINT8*& ptr) = 0;
         /// <summary>
         /// constポインタ版
         /// </summary>
         /// <param name="idx"></param>
         /// <returns></returns>
-        virtual const MIB_UINT8* constPtr(int idx)const = 0;
+        virtual RpResult constPtr(int idx,const MIB_UINT8*& ptr)const = 0;
         /// <summary>
         /// メモリブロックを1個pushします。
         /// </summary>
         /// <param name="d">NULLの場合、スタックポインタのみ移動します。</param>
         /// <param name="s"></param>
         /// <returns></returns>
-        virtual bool push(const MIB_INT8* d, int s) = 0;
+        virtual RpResult push(const MIB_INT8* d, int s) = 0;
         /// <summary>
         /// n個の値をpopする。
         /// </summary>
         /// <param name="n"></param>
         /// <returns></returns>
-        virtual bool pop(int n) = 0;
+        virtual RpResult pop(int n) = 0;
 
         ///// <summary>
         ///// キューからn番目の要素を取り外す。
         ///// </summary>
         ///// <param name="n"></param>
         ///// <returns></returns>
-        virtual bool remove(int idx) = 0;
+        virtual RpResult remove(int idx) = 0;
 
 
     public:
-        bool pushInt(MIB_INT32 v) {
+        RpResult pushInt(MIB_INT32 v) {
             if (v > INT16_MAX || v < INT16_MIN) {
                 MIB_INT8 d[5] = { TYPE_INT32 , };
                 int2bytes(v, d + 1);
@@ -313,42 +331,59 @@ namespace MIB {
                 return this->push(d, 2);
             }
         }
-        bool pushKeyword(const MIB_INT8* v, int len) {
+        RpResult pushKeyword(const MIB_INT8* v, int len) {
             if (len > TYPE_KWD_LEN) {
-                return false;
+                return RpResult::NG_KeywordTooLong;
             }
-
-            if (!this->push(NULL, len + 1)) {
-                return false;
+            RpResult r;
+            r = this->push(NULL, len + 1);
+            if (r!= RpResult::OK) {
+                return r;
             }
-            auto ptr = this->ptr(-1);
+            MIB_UINT8* ptr = NULL;
+            r= this->ptr(-1,ptr);
+            if (r != RpResult::OK) {
+                return r;
+            }
             *(ptr + 0) = 0xff & (len + TYPE_KWD_MIN);
             memmove(ptr + 1, v, len);
-            return true;
+            return RpResult::OK;
         }
 
-        bool pushStr(const MIB_INT8* v, int len) {
+        RpResult pushStr(const MIB_INT8* v, int len) {
+            RpResult r;
             if (len <= TYPE_SHORT_STR_LEN) {
-                if (!this->push(NULL, len + 1)) {
-                    return false;
+                r = this->push(NULL, len + 1);
+                if (r!= RpResult::OK) {
+                    return r;
                 }
-                auto ptr = this->ptr(-1);
+                MIB_UINT8* ptr = NULL;
+                r = this->ptr(-1,ptr);
+                if (r != RpResult::OK) {
+                    return r;
+                }
                 *(ptr + 0) = 0xff & (len + TYPE_SHORT_STR_MIN);
                 memmove(ptr + 1, v, len);
-                return true;
+                return RpResult::OK;
             }
             else {
-                if (!this->push(NULL, len + 3)) {
-                    return false;
+                r = this->push(NULL, len + 3);
+                if (r!= RpResult::OK) {
+                    return r;
                 }
-                auto ptr = this->ptr(-1);
+                MIB_UINT8* ptr = NULL;
+                r = this->ptr(-1, ptr);
+                if (r != RpResult::OK) {
+                    return r;
+                }
                 *(ptr + 0) = TYPE_LONG_STR;
                 ushort2bytes((MIB_UINT16)len, ptr + 1);
                 memmove(ptr + 3, v, len);
-                return true;
+                return RpResult::OK;
             }
         }
-        bool pushBool(bool v) {
+        RpResult pushBool(bool v)
+        {
             MIB_INT8 d = v ? TYPE_BOOL_TRUE : TYPE_BOOL_FALSE;
             return this->push(&d, 1);
         }
@@ -360,12 +395,14 @@ namespace MIB {
         ///// </summary>
         ///// <param name="idx"></param>
         ///// <returns></returns>
-        bool isTypeEqual(int idx, int c)const {
+        RpResult isTypeEqual(int idx, int c,bool& match)const {
             int w;
-            if (!this->peekType(idx, w)) {
-                return false;
+            auto r = this->peekType(idx, w);
+            if (r!= RpResult::OK) {
+                return r;
             }
-            return w == c;
+            match= w == c;
+            return RpResult::OK;
         }
 
         /// <summary>
@@ -373,14 +410,15 @@ namespace MIB {
         /// </summary>
         /// <param name="idx">-1で末尾。</param>
         /// <returns></returns>
-        bool peekType(int idx, int& dst)const
+        RpResult peekType(int idx, int& dst)const
         {
-            auto p = this->constPtr(idx);
-            if (p == NULL) {
-                return false;
+            const MIB_UINT8* ptr;
+            auto ret = this->constPtr(idx,ptr);
+            if (ret!= RpResult::OK!= NULL) {
+                return ret;
             }
-            dst = *p;
-            return true;
+            dst = *ptr;
+            return RpResult::OK;
         }
         /// <summary>
         /// N番目の要素からint値を取り出す。
@@ -388,31 +426,33 @@ namespace MIB {
         /// <param name="idx"></param>
         /// <param name="out"></param>
         /// <returns></returns>
-        bool peekInt(int idx, int& out)const
+        RpResult peekInt(int idx, int& out)const
         {
-            auto b = this->constPtr(idx);
-            if (b == NULL) {
-                return false;
+            const MIB_UINT8* ptr;
+            auto r = this->constPtr(idx,ptr);
+            if (r!= RpResult::OK) {
+                return r;
             }
             //型チェック
-            switch (b[0])
+            switch (ptr[0])
             {
-            case TYPE_INT32:out = bytes2int(b + 1);break;
-            case TYPE_INT16:out = bytes2short(b + 1);break;
-            case TYPE_INT8:out = (MIB_INT8)b[1];break;
+            case TYPE_INT32:out = bytes2int(ptr + 1);break;
+            case TYPE_INT16:out = bytes2short(ptr + 1);break;
+            case TYPE_INT8:out = (MIB_INT8)ptr[1];break;
             default:
-                return false;
+                return RpResult::NG_CanNotCast;
             }
-            return true;
+            return RpResult::OK;
         }
-        bool peekBool(int idx, bool& out)const
+        RpResult peekBool(int idx, bool& out)const
         {
-            auto p = this->constPtr(idx);
-            if (p != NULL && (*p == TYPE_BOOL_TRUE || *p == TYPE_BOOL_FALSE)) {
-                out = *p == TYPE_BOOL_TRUE;
-                return true;
+            const MIB_UINT8* ptr;
+            auto r = this->constPtr(idx, ptr);
+            if (r== RpResult::OK && (*ptr == TYPE_BOOL_TRUE || *ptr == TYPE_BOOL_FALSE)) {
+                out = *ptr == TYPE_BOOL_TRUE;
+                return RpResult::OK;
             }
-            return false;
+            return RpResult::NG_CanNotCast;
         }
 
 
@@ -423,23 +463,24 @@ namespace MIB {
         /// <param name="ptr"></param>
         /// <param name="len"></param>
         /// <returns></returns>
-        bool peekStr(int idx, const MIB_INT8*& ptr, int& len)const {
-            auto b = this->constPtr(idx);
-            if (b == NULL) {
-                return false;
+        RpResult peekStr(int idx, const MIB_INT8*& ptr, int& len)const {
+            const MIB_UINT8* p;
+            auto r = this->constPtr(idx,p);
+            if (r!= RpResult::OK) {
+                return r;
             }
             //型チェック
-            if (TYPE_SHORT_STR_MIN <= b[0] && b[0] <= TYPE_SHORT_STR_MAX) {
-                len = b[0] - TYPE_SHORT_STR_MIN;
-                ptr = (const MIB_INT8*)b + 1;
-                return true;
+            if (TYPE_SHORT_STR_MIN <= p[0] && p[0] <= TYPE_SHORT_STR_MAX) {
+                len = p[0] - TYPE_SHORT_STR_MIN;
+                ptr = (const MIB_INT8*)p + 1;
+                return RpResult::OK;
             }
-            if (b[0] == TYPE_LONG_STR) {
-                len = bytes2ushort(b + 1);
-                ptr = (const MIB_INT8*)b + 3;
-                return true;
+            if (p[0] == TYPE_LONG_STR) {
+                len = bytes2ushort(p + 1);
+                ptr = (const MIB_INT8*)p + 3;
+                return RpResult::OK;
             }
-            return false;
+            return RpResult::NG_CanNotCast;
         }
         /// <summary>
         /// N番目の要素を文字列と解釈して、文字数とサイズを返す
@@ -448,18 +489,20 @@ namespace MIB {
         /// <param name="ptr"></param>
         /// <param name="len"></param>
         /// <returns></returns>
-        bool peekKeyword(int idx, const MIB_INT8*& ptr, int& len)const {
-            auto b = this->constPtr(idx);
-            if (b == NULL) {
-                return false;
+        RpResult peekKeyword(int idx, const MIB_INT8*& ptr, int& len)const
+        {
+            const MIB_UINT8* p;
+            RpResult r=this->constPtr(idx,p);
+            if (r!= RpResult::OK) {
+                return r;
             }
             //型チェック
-            if (TYPE_KWD_MIN <= b[0] && b[0] <= TYPE_KWD_MAX) {
-                len = b[0] - TYPE_KWD_MIN;
-                ptr = (const MIB_INT8*)b + 1;
-                return true;
+            if (TYPE_KWD_MIN <= p[0] && p[0] <= TYPE_KWD_MAX) {
+                len = p[0] - TYPE_KWD_MIN;
+                ptr = (const MIB_INT8*)p + 1;
+                return RpResult::OK;
             }
-            return false;
+            return RpResult::NG_CanNotCast;
         }
         static inline bool _isIntType(MIB_UINT8 t) { return (t == TYPE_INT32 || t == TYPE_INT16 || t == TYPE_INT8); }
         static inline bool _isStrType(MIB_UINT8 t) { return (t == TYPE_LONG_STR || (TYPE_SHORT_STR_MIN <= t && t <= TYPE_SHORT_STR_MAX)); }
@@ -470,191 +513,203 @@ namespace MIB {
             int i;
             bool b;
         }OpValue_t;
-        bool popII(int&a,int&b){
-            if (this->peekInt(-1, a) && this->peekInt(-2, b)) {
-                this->pop(2);
-                return true;
+        RpResult popII(int&a,int&b)
+        {
+            RpResult r;
+            r = this->peekInt(-1, a);
+            if (r != RpResult::OK) {
+                return r;
             }
-            return false;
+            r = this->peekInt(-2, b);
+            if (r != RpResult::OK) {
+                return r;
+            }
+            return this->pop(2);
         }
-        bool popBB(bool& a, bool& b) {
-            if (this->peekBool(-1, a) && this->peekBool(-2, b)) {
-                this->pop(2);
-                return true;
+        RpResult popBB(bool& a, bool& b)
+        {
+            RpResult r;
+            r = this->peekBool(-1, a);
+            if (r != RpResult::OK) {
+                return r;
             }
-            return false;
+            r = this->peekBool(-2, b);
+            if (r != RpResult::OK) {
+                return r;
+            }
+            return this->pop(2);
         }
 
-        bool do_and() {
-            OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i & a.i);
+        RpResult do_and() {
+            OpValue_t a = {}, b = {};
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK){
+                return this->pushInt(b.i & a.i);
             }
-            else if (this->popBB(a.b, b.b)) {
-                this->pushBool(b.b && a.b);
+            r = this->popBB(a.b, b.b);
+            if (r == RpResult::OK) {
+                return this->pushBool(b.b && a.b);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_or() {
+        RpResult do_or() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i | a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK) {
+                return this->pushInt(b.i | a.i);
             }
-            else if (this->popBB(a.b, b.b)) {
-                this->pushBool(b.b || a.b);
+            r = this->popBB(a.b, b.b);
+            if(r== RpResult::OK){
+                return this->pushBool(b.b || a.b);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_xor() {
+        RpResult do_xor() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i ^ a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK) {
+                return this->pushInt(b.i ^ a.i);
             }
-            else if (this->popBB(a.b, b.b)) {
-                this->pushBool(b.b != a.b);
+            r = this->popBB(a.b, b.b);
+            if(r== RpResult::OK){
+                return this->pushBool(b.b != a.b);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_eq() {
+        RpResult do_eq() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushBool(b.i == a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK){
+                return this->pushBool(b.i == a.i);
             }
-            else if (this->popBB(a.b, b.b)) {
-                this->pushBool(b.i == a.i);
+            r = this->popBB(a.b, b.b);
+            if (r == RpResult::OK) {
+                return this->pushBool(b.i == a.i);
             }
-            else {
-                return false;
-            }
-            return true;
-
+            return r;
         }
-        bool do_noteq()
+        RpResult do_noteq()
         {
             OpValue_t a, b;
-            bool v = false;
-            if (this->popII(a.i, b.i)) {
-                this->pushBool(b.i != a.i);
-            }else if(this->popBB(a.b, b.b)) {
-                this->pushBool(b.i != a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if (r == RpResult::OK) {
+                return this->pushBool(b.i != a.i);
             }
-            else {
-                return false;
+            r = this->popBB(a.b, b.b);
+            if(r== RpResult::OK){
+                return this->pushBool(b.i != a.i);
             }
-            return true;
+            return r;
         }
-        bool do_not() {
+        RpResult do_not() {
             OpValue_t a;
-            if (this->peekInt(-1, a.i)) {
+            RpResult r;
+            r = this->peekInt(-1, a.i);
+            if (r == RpResult::OK) {
                 this->pop(1);
-                this->pushInt(~a.i);
-            }else if (this->peekBool(-1, a.b)) {
+                return this->pushInt(~a.i);
+            }
+            r = this->peekBool(-1, a.b);
+            if(r== RpResult::OK){
                 this->pop(1);
-                this->pushBool(!a.b);
+                return this->pushBool(!a.b);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_lt() {
+        RpResult do_lt() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushBool(b.i < a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK) {
+                return this->pushBool(b.i < a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_lteq() {
+        RpResult do_lteq() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushBool(b.i <= a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if (r== RpResult::OK) {
+                return this->pushBool(b.i <= a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_gt() {
+        RpResult do_gt() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushBool(b.i > a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK){
+                return this->pushBool(b.i > a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_gteq() {
+        RpResult do_gteq() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushBool(b.i >= a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK){
+                return this->pushBool(b.i >= a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_mul() {
+        RpResult do_mul() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i * a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK){
+                return this->pushInt(b.i * a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_minus() {
+        RpResult do_minus() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i - a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if (r== RpResult::OK) {
+                return this->pushInt(b.i - a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_plus() {
+        RpResult do_plus() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i + a.i);
-            }else{
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if (r== RpResult::OK) {
+                return this->pushInt(b.i + a.i);
+            }
+            {
                 //strがどちらかにあること
                 int t[2] = {};
                 for (int i = 0;i < 2;i++) {
-                    if (!this->peekType(-1 - i, t[i])) {
-                        return false;
+                    r = this->peekType(-1 - i, t[i]);
+                    if (r!= RpResult::OK) {
+                        return r;
                     }
                 }
                 if (!_isStrType(t[0]) && !_isStrType(t[1])) {
-                    return false;
+                    return RpResult::NG_CanNotCast;
                 }
                 int l[2] = { 0,0 };
                 const MIB_INT8* s[2] = { NULL,NULL };
                 char work[16];
                 for (int i = 0;i < 2;i++) {
                     if (_isStrType(t[i])) {
-                        if (this->peekStr(-1 - i, s[i], l[i])) {
+                        r = this->peekStr(-1 - i, s[i], l[i]);
+                        if (r== RpResult::OK) {
                             continue;
                         }
                     }
                     //両方がintということはない
                     if (_isIntType(t[i])) {
                         int w = 0;
-                        if (!this->peekInt(-1 - i, w)) {
-                            return false;
+                        r = this->peekInt(-1 - i, w);
+                        if (r!= RpResult::OK) {
+                            return r;
                         }
                         l[i] = countDigits(w);
                         s[i] = work;
@@ -670,10 +725,15 @@ namespace MIB {
 
                 this->pop(2);
                 //スタックポインタを3個破棄して領域をpush
-                if (!this->push(NULL, hsize + sl)) {
-                    return false;
+                r = this->push(NULL, hsize + sl);
+                if (r!= RpResult::OK) {
+                    return r;
                 }
-                auto ptr = this->ptr(-1);
+                MIB_UINT8* ptr;
+                r= this->ptr(-1,ptr);
+                if (r != RpResult::OK) {
+                    return r;
+                }
                 //領域に文字列を編集
                 memmove(ptr + d1, s[0], l[0]);//t1
                 memmove(ptr + d2, s[1], l[1]);//t2
@@ -686,64 +746,63 @@ namespace MIB {
                     ushort2bytes((MIB_UINT16)sl, ptr + 1);
                 }
             }
-            return true;
+            return RpResult::OK;
         }
-        bool do_mod() {
+        RpResult do_mod() {
             OpValue_t a = {}, b = {};
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i % a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if (r== RpResult::OK) {
+                return this->pushInt(b.i % a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_div() {
+        RpResult do_div() {
             OpValue_t a = {}, b = {};
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i / a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK){
+                return this->pushInt(b.i / a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_shl() {
+        RpResult do_shl() {
             OpValue_t a = {}, b = {};
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i << a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if (r== RpResult::OK) {
+                return this->pushInt(b.i << a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        bool do_shr() {
+        RpResult do_shr() {
             OpValue_t a, b;
-            if (this->popII(a.i, b.i)) {
-                this->pushInt(b.i >> a.i);
+            RpResult r;
+            r = this->popII(a.i, b.i);
+            if(r== RpResult::OK){
+                return this->pushInt(b.i >> a.i);
             }
-            else {
-                return false;
-            }
-            return true;
+            return r;
         }
-        Result do_brk_r() {
+        RpResult do_brk_r()
+        {
             //直前の(を検出する。
             for (auto i = 1;;i++) {
                 auto t = 0;
-                if (!this->peekType(-i, t)) {
-                    return Result::NG;
+                RpResult ret;
+                ret = this->peekType(-i, t);
+                if (ret!= RpResult::OK) {
+                    return ret;
                 }
                 if (t != (int)DelimType::BRKT_L) {
                     continue;
                 }
-                //ブラケット直前がキーワードか判定
-                if (this->peekType(-(i + 1), t)) {
+                //ブラケット直前がキーワードか判定(エラーはハンドル不要)
+                if (this->peekType(-(i + 1), t)== RpResult::OK) {
                     if (TYPE_KWD_MIN <= t && t <= TYPE_KWD_MAX) {
                         ////キーワード関数処理
                         //関数がスタックを操作し終えていることを期待する。
-                        return Result::NG;
+                        return RpResult::NG;
                         //return this->handleFunction(int index);
 
                         //Args args(*this, -(i - 1), n);
@@ -754,7 +813,7 @@ namespace MIB {
                 //単純ブラケット
                 //発見->ブラケットを取り去る
                 this->remove(-i);
-                return Result::OK;
+                return RpResult::OK;
                 //if (i == 2) {
                 //    this->remove(-i);
                 //    return true;
@@ -769,47 +828,42 @@ namespace MIB {
         /// キューの末尾の演算子を実行する。
         /// </summary>
         /// <returns></returns>
-        bool execute()
+        RpResult execute()
         {
             auto t1 = 0;
-            if (!this->peekType(-1, t1)) {
-                return false;
+            RpResult ret = this->peekType(-1, t1);
+            if (ret!= RpResult::OK) {
+                return ret;
             }
             bool oret=false;
             this->pop(1);
             switch(t1){
-            case (int)DelimType::AND:   oret=this->do_and();break;
-            case (int)DelimType::OR:    oret = this->do_or();break;
-            case (int)DelimType::XOR:    oret = this->do_xor();break;
-            case (int)DelimType::EQ:    oret=this->do_eq();break;
-            case (int)DelimType::NOTEQ: oret = this->do_noteq();break;
-            case (int)DelimType::NOT: oret = this->do_not();break;
-            case (int)DelimType::LT:    oret = this->do_lt();break;
-            case (int)DelimType::LTEQ:  oret = this->do_lteq();break;
-            case (int)DelimType::GT:    oret = this->do_gt();break;
-            case (int)DelimType::GTEQ:  oret = this->do_gteq();break;
+            case (int)DelimType::AND:   return this->do_and();
+            case (int)DelimType::OR:    return this->do_or();
+            case (int)DelimType::XOR:   return this->do_xor();
+            case (int)DelimType::EQ:    return this->do_eq();
+            case (int)DelimType::NOTEQ: return this->do_noteq();
+            case (int)DelimType::NOT:   return this->do_not();break;
+            case (int)DelimType::LT:    return this->do_lt();break;
+            case (int)DelimType::LTEQ:  return this->do_lteq();break;
+            case (int)DelimType::GT:    return this->do_gt();break;
+            case (int)DelimType::GTEQ:  return this->do_gteq();break;
 
-            case (int)DelimType::MUL:    oret = this->do_mul();break;
-            case (int)DelimType::MINUS: oret = this->do_minus();break;
-            case (int)DelimType::PLUS:  oret = this->do_plus();break;
-            case (int)DelimType::MOD:   oret = this->do_mod();break;
-            case (int)DelimType::DIV:   oret = this->do_div();break;
-            case (int)DelimType::SHL:    oret = this->do_shl();break;
-            case (int)DelimType::SHR:    oret = this->do_shr();break;
+            case (int)DelimType::MUL:   return this->do_mul();break;
+            case (int)DelimType::MINUS: return this->do_minus();break;
+            case (int)DelimType::PLUS:  return this->do_plus();break;
+            case (int)DelimType::MOD:   return this->do_mod();break;
+            case (int)DelimType::DIV:   return this->do_div();break;
+            case (int)DelimType::SHL:   return this->do_shl();break;
+            case (int)DelimType::SHR:   return this->do_shr();break;
             //COMはそのまま
-            case (int)DelimType::COM:    oret = true;break;
-            case (int)DelimType::BRKT_L: oret = true;break;
+            case (int)DelimType::COM:   return RpResult::OK;
+            case (int)DelimType::BRKT_L:return RpResult::OK;
             case (int)DelimType::BRKT_R:
-                oret = this->do_brk_r() == Result::OK;
-                break;
-            default:break;
+                return this->do_brk_r();
+            default:
+                return RpResult::NG_UndefinedOP;
             }
-            //if (this->_strProc(t1)) {
-            //    //strでのplus演算
-            //    return true;
-            //}
-            //全ての演算に失敗したらfalse
-            return oret;
         }
     public:
         /// <summary>
@@ -818,24 +872,26 @@ namespace MIB {
         /// </summary>
         /// <param name="o"></param>
         /// <returns></returns>
-        bool pushOp(const OpDef* o)
+        RpResult pushOp(const OpDef* o)
         {
             MIB_INT8 c = (MIB_UINT8)o->delim;
-            if (!this->push(&c, 1)) {
-                return false;
+            RpResult r;
+            r = this->push(&c, 1);
+            if (r!= RpResult::OK) {
+                return r;
             }
             switch (o->delim) {
             case DelimType::BRKT_L:
             case DelimType::COM:
-                return true;
+                return RpResult::OK;
             }
             if (!this->_push_only)
             {
                 return this->execute();
             }
-            return true;
+            return RpResult::OK;
         }
-        bool pushBraket() {
+        RpResult pushBraket() {
             MIB_INT8 c = (MIB_UINT8)DelimType::BRKT_L;
             return this->push(&c,1);
         }
@@ -862,35 +918,38 @@ namespace MIB {
         int _sp = 0;                //スタックポインタ   
         int _ptr = 0;               //書込みポインタ
     private:
-        bool _getStackIndex(int idx, int& s)const
+        RpResult _getStackIndex(int idx, int& s)const
         {
             if (idx >= 0) {
                 if (idx < this->_sp) {
                     s = idx;
-                    return true;
+                    return RpResult::OK;
                 }
             }
             else if (this->_sp + idx >= 0) {
                 s = this->_sp + idx;
-                return true;
+                return RpResult::OK;
             }
-            return false;
+            return RpResult::NG_OpQIndexRange;
         }
         /// <summary>
         /// N番目のスタック要素のbuf上のサイズを返します。
         /// </summary>
         /// <returns></returns>
-        bool _getBlockSize(int idx, int& s)const
+        RpResult _getBlockSize(int idx, int& s)const
         {
             int p;
-            if (!this->_getStackIndex(idx, p)) {
-                return false;
+            RpResult r;
+            r = this->_getStackIndex(idx, p);
+            if (r!= RpResult::OK) {
+                return r;
             }
-            auto b = this->constPtr(idx);
-            if (b == NULL) {
-                return false;
+            const MIB_UINT8* ptr;
+            r=this->constPtr(idx,ptr);
+            if (r!= RpResult::OK) {
+                return r;
             }
-            auto tval = b[0];//型変数
+            auto tval = ptr[0];//型変数
             if (tval <= TYPE_OP_MAX || tval == TYPE_BOOL_TRUE || tval == TYPE_BOOL_FALSE) {
                 s = 1;
             }
@@ -910,39 +969,46 @@ namespace MIB {
                 s = 1 + tval - TYPE_SHORT_STR_MIN;
             }
             else if (tval == TYPE_LONG_STR) {
-                s = 1 + 2 + bytes2ushort(&b[1]);
+                s = 1 + 2 + bytes2ushort(&ptr[1]);
             }
             else {
-                return false;
+                return RpResult::NG;
             }
-            return true;
+            return RpResult::OK;
         }
     protected:
+
         /// <summary>
         /// n番目の要素のキューメモリ上のポインタを返します。
         /// </summary>
         /// <param name="idx"></param>
         /// <returns></returns>
-        MIB_UINT8* ptr(int idx)
+        RpResult ptr(int idx, MIB_UINT8*& ptr)
         {
             int p;
-            if (!_getStackIndex(idx, p)) {
-                return NULL;
+            RpResult r;
+            r = this->_getStackIndex(idx, p);
+            if (r != RpResult::OK) {
+                return r;
             }
-            return &this->_buf[*(this->_stack + p)];
+            ptr=&this->_buf[*(this->_stack + p)];
+            return RpResult::OK;
         }
         /// <summary>
         /// constポインタ版
         /// </summary>
         /// <param name="idx"></param>
         /// <returns></returns>
-        const MIB_UINT8* constPtr(int idx)const
+        RpResult constPtr(int idx,const MIB_UINT8*& ptr)const
         {
             int p;
-            if (!_getStackIndex(idx, p)) {
-                return NULL;
+            RpResult r;
+            r = this->_getStackIndex(idx, p);
+            if (r!= RpResult::OK) {
+                return r;
             }
-            return this->_buf + *(this->_stack + p);
+            ptr=this->_buf + *(this->_stack + p);
+            return RpResult::OK;
         }
     public:
         void reset()
@@ -957,48 +1023,52 @@ namespace MIB {
         /// <param name="d">NULLの場合、スタックポインタのみ移動します。</param>
         /// <param name="s"></param>
         /// <returns></returns>
-        bool push(const MIB_INT8* d, int s) {
+        RpResult push(const MIB_INT8* d, int s) {
             auto& ptr = this->_ptr;
             auto& buf = this->_buf;
             if (ptr + s >= QSIZE || this->_sp >= STACKDEPTH) {
-                return false;
+                return RpResult::NG_OpQIndexRange;
             }
             if (d != NULL) {
                 memmove(buf + ptr, d, s);
             }
             this->_stack[this->_sp++] = ptr;
             this->_ptr += s;
-            return true;
+            return RpResult::OK;
         }
         /// <summary>
         /// n個の値をpopする。
         /// </summary>
         /// <param name="n"></param>
         /// <returns></returns>
-        bool pop(int n)
+        RpResult pop(int n)
         {
             for (auto i = 0;i < n;i++) {
                 if (this->_sp < 1) {
-                    return false;
+                    return RpResult::NG_OpQIndexRange;
                 }
                 int bs = 0;
-                if (!this->_getBlockSize(-1, bs)) {
-                    return false;
+                RpResult r;
+                r = this->_getBlockSize(-1, bs);
+                if (r!= RpResult::OK) {
+                    return r;
                 }
                 this->_sp--;
                 this->_ptr -= bs;
             }
-            return true;
+            return RpResult::OK;
         }
         ///// <summary>
         ///// キューからn番目の要素を取り外す。
         ///// </summary>
         ///// <param name="n"></param>
         ///// <returns></returns>
-        bool remove(int idx) {
+        RpResult remove(int idx) {
             int p;
-            if (!this->_getStackIndex(idx, p)) {
-                return false;
+            RpResult r;
+            r = this->_getStackIndex(idx, p);
+            if (r!= RpResult::OK) {
+                return r;
             }
             //末尾ならpopで終える。
             if (p == this->_sp - 1) {
@@ -1006,8 +1076,9 @@ namespace MIB {
             }
             //中途なら左詰め
             int bs = 0;
-            if (!this->_getBlockSize(p, bs)) {   //ブロックのサイズ
-                return false;
+            r = this->_getBlockSize(p, bs);
+            if (r!= RpResult::OK) {   //ブロックのサイズ
+                return r;
             }
             auto bp = this->_stack[p];             //bufのポインタ
             memmove(&this->_buf[bp], &this->_buf[bp + bs], this->_ptr - bs);//移動
@@ -1016,7 +1087,7 @@ namespace MIB {
                 this->_stack[i - 1] = this->_stack[i] - bs;
             }
             this->_sp--;
-            return true;
+            return RpResult::OK;
 
         }
 
@@ -1074,7 +1145,7 @@ namespace MIB {
                     continue;
                 }
                 bool b;
-                if (inst.peekBool(i, b)) {
+                if (inst.peekBool(i, b)== RpResult::OK) {
                     str = str + sprintf(str, "%s ", b ? "TRUE" : "FALSE");
                     continue;
 
@@ -1109,11 +1180,11 @@ namespace MIB {
         /// <param name="v"></param>
         /// <param name="q"></param>
         /// <returns></returns>
-        bool push(const OpDef* s, RpQueue& q)
+        RpResult push(const OpDef* s, RpQueue& q)
         {
             //超過チェック
             if (this->_ptr >= SIZE) {
-                return false;
+                return RpResult::NG_OpQIndexRange;
             }
             switch (s->delim) {
             case DelimType::COM:
@@ -1129,8 +1200,9 @@ namespace MIB {
                     //case DelimType::COM:
                     //    break;//COMを積む
                     default:
-                        if (!q.pushOp(w)) {
-                            return false;  //スタック超過
+                        RpResult r = q.pushOp(w);
+                        if (r!= RpResult::OK) {
+                            return r;  //スタック超過
                         }
                         this->pop();
                         continue;
@@ -1150,18 +1222,22 @@ namespace MIB {
                     }
                     else {                        
                         MIB_ASSERT(w->prio != 0);
-                        if (!q.pushOp(w)) {
-                            return false;
+                        RpResult r = q.pushOp(w);
+                        if (r != RpResult::OK) {
+                            return r;
                         }
                     }
                     this->pop();
                 }
                 return q.pushOp(&OpTableDef_BRKT_R);
             case DelimType::BRKT_L:
-                if (!q.pushOp(&OpTableDef_BRKT_L)) {
-                    return false;
+            {
+                RpResult r = q.pushOp(&OpTableDef_BRKT_L);
+                if (r != RpResult::OK) {
+                    return r;
                 }
                 break;//Lを構造デリミタとして積む
+            }
             default:
             {
                 //新しい演算子より優先度の高い演算子を払い出し
@@ -1176,8 +1252,10 @@ namespace MIB {
                         MIB_ASSERT(w->prio != 0);
                         if (w->prio <= s->prio) {
                             //払い出し
-                            if (!q.pushOp(w)) {
-                                return false;
+                            RpResult r;
+                            r = q.pushOp(w);
+                            if (r!=RpResult::OK) {
+                                return r;
                             }
                             this->pop();
                         }
@@ -1188,7 +1266,7 @@ namespace MIB {
             }
             //積む
             this->_buf[this->_ptr++] = (MIB_UINT8)s->delim;
-            return true;
+            return RpResult::OK;
         };
         bool pop() {
             if (this->_ptr == 0) {
@@ -1245,29 +1323,45 @@ namespace MIB {
 class RpSolver
 {
 public:
-    enum class Result {
-        OK,
-        NG,
-        NG_EOS,
-//        NG_IO,
-        NG_TokenTooLong,
-        NG_StackOverFlow,
-        NG_SyntaxError,
-        NG_InvalidNumber,
-        NG_NumberRange,
-        NG_UnknownDelimiter,
-        NG_UnknownToken,
-    };
-    static Result covertResult(RawTokenIterator::Result r) {
+//    enum class Result {
+//        OK,
+//        NG,
+//        NG_EOS,
+////        NG_IO,
+//        NG_TokenTooLong,
+//        NG_StackOverFlow,
+//        NG_SyntaxError,
+//        NG_InvalidNumber,
+//        NG_NumberRange,
+//        NG_UnknownDelimiter,
+//        NG_UnknownToken,
+//        NG_KeywordTooLong,
+//        NG_OpQIndexRange,
+//        NG_CanNotCast,
+//    };
+    static RpResult covertResult(RawTokenIterator::Result r) {
         switch (r) {
-        case RawTokenIterator::Result::OK:return Result::OK;
-        case RawTokenIterator::Result::NG_EOS:return Result::NG_EOS;
-        case RawTokenIterator::Result::NG_InvalidNumber:return Result::OK;
-        case RawTokenIterator::Result::NG_InvalidToken:return Result::OK;
-        case RawTokenIterator::Result::NG_NumberRange:return Result::OK;
-        default:return Result::NG;
+        case RawTokenIterator::Result::OK:return RpResult::OK;
+        case RawTokenIterator::Result::NG_EOS:return RpResult::NG_EOS;
+        case RawTokenIterator::Result::NG_InvalidNumber:return RpResult::OK;
+        case RawTokenIterator::Result::NG_InvalidToken:return RpResult::OK;
+        case RawTokenIterator::Result::NG_NumberRange:return RpResult::OK;
+        default:return RpResult::NG;
         }
     }
+    //static Result covertResult(RpQueue::Result r) {
+    //    switch (r) {
+    //    case RpQueue::Result::OK:return Result::OK;
+    //    case RpQueue::Result::NG:return Result::NG;
+    //    case RpQueue::Result::NG_UNDEF_FUNCTION_KEYWORD:return Result::NG;
+    //    case RpQueue::Result::NG_UNDEF_VALUE_KEYWORD:return Result::NG;
+    //    case RpQueue::Result::NG_CANNOT_CAST:return Result::NG_CanNotCast;
+    //    case RpQueue::Result::NG_INDEX_RANGE:return Result::NG_OpQIndexRange;
+    //    case RpQueue::Result::NG_KWD_TOO_LONG:return Result::NG_KeywordTooLong;
+    //    case RpQueue::Result::NG_UNDEF_OP:return Result::NG;
+    //    default:return Result::NG;
+    //    }
+    //}
 
 private:
     /// <summary>
@@ -1282,7 +1376,7 @@ private:
         /// </summary>
         /// <param name="d"></param>
         /// <returns></returns>
-        Result asOpToken(const RawTokenIterator::RawToken_t& token,const OpDef*& d)
+        RpResult asOpToken(const RawTokenIterator::RawToken_t& token,const OpDef*& d)
         {
             MIB_ASSERT(token.type == RawTokenType::DELIM);
             if (token.size == 1) {
@@ -1298,9 +1392,9 @@ private:
                 case '>':d = &OpTableDef_GT;break;
                 case ',':d = &OpTableDef_COM;break;
                 default:
-                    return Result::NG_UnknownDelimiter;
+                    return RpResult::NG_UnknownDelimiter;
                 }
-                return Result::OK;
+                return RpResult::OK;
             }
             if (token.size == 2) {
                 switch (*token.ptr) {
@@ -1308,14 +1402,14 @@ private:
                     switch (*(token.ptr + 1)) {
                     case '=':d = &OpTableDef_NOTEQ;break;
                     default:
-                        return Result::NG_UnknownDelimiter;
+                        return RpResult::NG_UnknownDelimiter;
                     }
                     break;
                 case '=':
                     switch (*(token.ptr + 1)) {
                     case '=':d = &OpTableDef_EQ;break;
                     default:
-                        return Result::NG_UnknownDelimiter;
+                        return RpResult::NG_UnknownDelimiter;
                     }
                     break;
                 case '>':
@@ -1323,7 +1417,7 @@ private:
                     case '=':d = &OpTableDef_GTEQ;break;
                     case '>':d = &OpTableDef_SHR;break;
                     default:
-                        return Result::NG_UnknownDelimiter;
+                        return RpResult::NG_UnknownDelimiter;
                     }
                     break;
                 case '<':
@@ -1332,20 +1426,20 @@ private:
                     case '>':d = &OpTableDef_NOTEQ;break;
                     case '<':d = &OpTableDef_SHL;break;
                     default:
-                        return Result::NG_UnknownDelimiter;
+                        return RpResult::NG_UnknownDelimiter;
                     }
                     break;
                 case 'O':   //Or
                     switch (*(token.ptr + 1)) {
                     case 'r':d = &OpTableDef_OR;break;
                     default:
-                        return Result::NG_UnknownDelimiter;
+                        return RpResult::NG_UnknownDelimiter;
                     }
                     break;
                 default:
-                    return Result::NG_UnknownDelimiter;
+                    return RpResult::NG_UnknownDelimiter;
                 }
-                return Result::OK;
+                return RpResult::OK;
             }
             if (token.size == 3) {
                 if (memcmp(token.ptr, "And", 3) == 0) {
@@ -1361,11 +1455,11 @@ private:
                     d = &OpTableDef_NOT;
                 }
                 else {
-                    return Result::NG_UnknownDelimiter;
+                    return RpResult::NG_UnknownDelimiter;
                 }
-                return Result::OK;
+                return RpResult::OK;
             }
-            return Result::NG_UnknownDelimiter;
+            return RpResult::NG_UnknownDelimiter;
         }
         /// <summary>
         /// トークンを数値に変換する
@@ -1373,15 +1467,15 @@ private:
         /// <param name="d"></param>
         /// <param name="sign"></param>
         /// <returns></returns>
-        Result asInt(const RawTokenIterator::RawToken_t& token,int& out, int sign = 1)
+        RpResult asInt(const RawTokenIterator::RawToken_t& token,int& out, int sign = 1)
         {
             return covertResult(token.asInt32(out, sign));
         }
-        Result asStr(const RawTokenIterator::RawToken_t& token,const MIB_INT8*& out, int& len)const
+        RpResult asStr(const RawTokenIterator::RawToken_t& token,const MIB_INT8*& out, int& len)const
         {
             out = token.ptr;
             len = token.size;
-            return Result::OK;
+            return RpResult::OK;
         }
     };
 private:
@@ -1390,7 +1484,7 @@ private:
     OpStack<> ops;
     RpQueueImpl<> vs;
 public:
-    Result parse(RawTokenIterator& iter,bool nosolve=false)
+    RpResult parse(RawTokenIterator& iter,bool nosolve=false)
     {
         const RawTokenIterator::RawToken_t* token;
         RawTokenParser parser;
@@ -1408,20 +1502,21 @@ public:
                 for (;;) {
                     const OpDef* w;
                     if (!this->ops.peek(w)) {
-                        return Result::OK;
+                        return RpResult::OK;
                     }
                     this->ops.pop();//常に成功
-                    if (!this->vs.pushOp(w)) {
-                        return Result::NG_StackOverFlow;  //スタック超過
+                    RpResult r = this->vs.pushOp(w);
+                    if (r!= RpResult::OK) {
+                        return r;  //スタック超過
                     }
                 }
-                return Result::OK;
+                return RpResult::OK;
             }
             if(token->type==RawTokenType::DELIM)
             {
                 const OpDef* tmp_delim = NULL;
                 auto r = parser.asOpToken(*token, tmp_delim);
-                if (r != Result::OK) {
+                if (r != RpResult::OK) {
                     return r;
                 }
                 //+と-を一時的に符号として処理
@@ -1440,93 +1535,115 @@ public:
                     if (is_left_edge) {
                         if (sign < 0) {
                             //-1*を挿入
-                            if (!this->vs.pushInt(-1)) {
-                                return Result::NG_StackOverFlow;
+                            RpResult r;
+                            r = this->vs.pushInt(-1);
+                            if (r!= RpResult::OK) {
+                                return r;
                             }
-                            if (!this->ops.push(&OpTableDef_MUL, vs)) {
-                                return Result::NG;
+                            r = this->ops.push(&OpTableDef_MUL, vs);
+                            if (r!= RpResult::OK) {
+                                return r;
                             }
                         }
                     }
                     else {
                         if (sign != 0) {
                             const OpDef* op = sign < 0 ? &OpTableDef_MINUS : &OpTableDef_PLUS;
-                            if (!this->ops.push(op, vs)) {
-                                return Result::NG;
+                            RpResult r;
+                            r = this->ops.push(op, vs);
+                            if (r!= RpResult::OK) {
+                                return r;
                             }
                         }
                     }
                     sign = 0;
                     is_left_edge = true;
                     //そのまま演算子を積む
-                    if (!this->ops.push(tmp_delim, this->vs)) {
-                        return Result::NG;
+                    RpResult r;
+                    r = this->ops.push(tmp_delim, this->vs);
+                    if (r!= RpResult::OK) {
+                        return r;
                     }
                     continue;
                 }
 
                 case DelimType::BRKT_L:
+                {
                     //単項演算子、ブラケットLの前にはsignが許可される。
                     //signはLeftEdgeの場合のみ-1*Nに展開する。
                     if (is_left_edge) {
                         if (sign < 0) {
                             //-1*を挿入
-                            if (!this->vs.pushInt(-1)) {
-                                return Result::NG_StackOverFlow;
+                            RpResult r;
+                            r= this->vs.pushInt(-1);
+                            if (r != RpResult::OK) {
+                                return r;
                             }
-                            if (!this->ops.push(&OpTableDef_MUL, vs)) {
-                                return Result::NG;
+                            r = this->ops.push(&OpTableDef_MUL, vs);
+                            if (r != RpResult::OK) {
+                                return r;
                             }
                         }
                     }
                     else {
                         if (sign != 0) {
                             const OpDef* op = sign < 0 ? &OpTableDef_MINUS : &OpTableDef_PLUS;
-                            if (!this->ops.push(op, vs)) {
-                                return Result::NG;
+                            RpResult r = this->ops.push(op, vs);
+                            if (r != RpResult::OK) {
+                                return r;
                             }
                         }
                     }
                     sign = 0;
                     is_left_edge = true;
                     //そのまま演算子を積む
-                    if (!this->ops.push(tmp_delim, this->vs)) {
-                        return Result::NG;
+                    RpResult r = this->ops.push(tmp_delim, this->vs);
+                    if (r != RpResult::OK) {
+                        return r;
                     }
                     continue;
+                }
                 case DelimType::COM:
+                {
                     //演算子の直前に符号があってはならない。
                     if (sign != 0) {
-                        return Result::NG;
+                        return RpResult::NG_SyntaxError;
                     }
                     is_left_edge = true;// 1,-(1-3)ためして
                     //そのまま演算子を積む
-                    if (!this->ops.push(tmp_delim, this->vs)) {
-                        return Result::NG;
+                    RpResult r = this->ops.push(tmp_delim, this->vs);
+                    if (r != RpResult::OK) {
+                        return r;
                     }
                     continue;
+                }
                 case DelimType::BRKT_R:
+                {
                     //演算子の直前に符号があってはならない。
                     if (sign != 0) {
-                        return Result::NG;
+                        return RpResult::NG_SyntaxError;
                     }
                     //そのまま演算子を積む
-                    if (!this->ops.push(tmp_delim, this->vs)) {
-                        return Result::NG;
+                    RpResult r = this->ops.push(tmp_delim, this->vs);
+                    if (r!=RpResult::OK) {
+                        return r;
                     }
                     continue;
-
+                }
                 default:
+                {
                     //その他は演算子の直前に符号があってはならない。
                     if (sign != 0) {
-                        return Result::NG;
+                        return RpResult::NG;
                     }
                     is_left_edge = true;
                     //そのまま演算子を積む
-                    if (!this->ops.push(tmp_delim, this->vs)) {
-                        return Result::NG;
+                    RpResult r = this->ops.push(tmp_delim, this->vs);
+                    if (r!=RpResult::OK) {
+                        return r;
                     }
                     continue;
+                }
                 }
             }
             auto current_left_edge = is_left_edge;
@@ -1540,8 +1657,9 @@ public:
                 if (current_sign !=0) {
                     if (!current_left_edge) {
                         //LeftEdgeでなければ演算子を積む
-                        if (!this->ops.push(&OpTableDef_PLUS, vs)) {
-                            return Result::NG_StackOverFlow;
+                        RpResult r = this->ops.push(&OpTableDef_PLUS, vs);
+                        if (r!=RpResult::OK) {
+                            return r;
                         }
                     }
                 }
@@ -1549,12 +1667,14 @@ public:
                     current_sign = 1;
                 }
                 int vi;
-                auto r = parser.asInt(*token, vi, current_sign);
-                if (r != Result::OK) {
+                RpResult r;
+                r = parser.asInt(*token, vi, current_sign);
+                if (r != RpResult::OK) {
                     return r;
                 }
-                if (!this->vs.pushInt(vi)) {
-                    return Result::NG_StackOverFlow;
+                r = this->vs.pushInt(vi);
+                if (r != RpResult::OK) {
+                    return r;
                 }
                 break;
             }
@@ -1562,25 +1682,28 @@ public:
             {
                 if (current_left_edge) {
                     if (current_sign != 0) {
-                        return Result::NG;//Lエッジの文字列に符号がついていたらおかしい
+                        return RpResult::NG;//Lエッジの文字列に符号がついていたらおかしい
                     }
                 }
                 else {
                     if (current_sign <= 0) {
-                        return Result::NG;//文字列は+符号を持つべき
+                        return RpResult::NG;//文字列は+符号を持つべき
                     }
-                    if (!this->ops.push(&OpTableDef_PLUS, vs)) {
-                        return Result::NG_StackOverFlow;
+                    RpResult r = this->ops.push(&OpTableDef_PLUS, vs);
+                    if (r!=RpResult::OK) {
+                        return r;
                     }
                 }
                 const MIB_INT8* s = NULL;
                 int l = 0;
-                auto r = parser.asStr(*token, s, l);
-                if (r != Result::OK) {
+                RpResult r;
+                r= parser.asStr(*token, s, l);
+                if (r != RpResult::OK) {
                     return r;
                 }
-                if (!this->vs.pushStr(s, l)) {
-                    return Result::NG_StackOverFlow;
+                r = this->vs.pushStr(s, l);
+                if (r!=RpResult::OK) {
+                    return r;
                 }
                 break;
             }
@@ -1588,41 +1711,50 @@ public:
             {
                 if (current_left_edge) {
                     if (current_sign<0) {
+                        RpResult r;
+                        r= this->vs.pushInt(-1);
                         //-1*を挿入
-                        if (!this->vs.pushInt(-1)) {
-                            return Result::NG_StackOverFlow;
+                        if (r != RpResult::OK) {
+                            return r;
                         }
-                        if (!this->ops.push(&OpTableDef_MUL, vs)) {
-                            return Result::NG;
+                        r = this->ops.push(&OpTableDef_MUL, vs);
+                        if (r!=RpResult::OK) {
+                            return r;
                         }
                     }
                 }
                 else {
                     if (current_sign < 0) {
-                        if (!this->ops.push(&OpTableDef_MINUS, vs)) {
-                            return Result::NG;
+                        RpResult r;
+                        r = this->ops.push(&OpTableDef_MINUS, vs);
+                        if (r!=RpResult::OK) {
+                            return r;
                         }
                     }
                     else {
-                        if (!this->ops.push(&OpTableDef_PLUS, vs)) {
-                            return Result::NG;
+                        RpResult r;
+                        r = this->ops.push(&OpTableDef_PLUS, vs);
+                        if (r!=RpResult::OK) {
+                            return r;
                         }
                     }
                 }
                 const MIB_INT8* s = NULL;
                 int l = 0;
-                auto r = parser.asStr(*token, s, l);
-                if (r != Result::OK) {
+                RpResult r;
+                r= parser.asStr(*token, s, l);
+                if (r != RpResult::OK) {
                     return r;
                 }
-                if (!this->vs.pushKeyword(s, l)) {
-                    return Result::NG_StackOverFlow;
+                r = this->vs.pushKeyword(s, l);
+                if (r != RpResult::OK) {
+                    return r;
                 }
                 break;
 
             }
             default:
-                return Result::NG_UnknownToken;
+                return RpResult::NG_UnknownToken;
             }
 
         }
